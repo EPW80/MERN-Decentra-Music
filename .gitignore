@@ -1,0 +1,45 @@
+# Node modules
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build and logs
+dist/
+build/
+client/build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# dotenv environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+client/.env
+server/.env
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE/editor folders
+.vscode/
+.idea/
+
+# Testing coverage
+coverage/
+
+# Dependency lock files (optional, include if using one package manager)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# misc
+*.log
+*.tgz
+
+# Optional: Ignore uploads or generated files
+uploads/
+public/uploads/
