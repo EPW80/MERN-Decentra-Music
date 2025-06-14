@@ -1,7 +1,8 @@
-import User from "../models/User";
-import Track from "../models/Track";
-import Album from "../models/Album";
-import { getContract } from "../config/blockchain";
+import Track from "../models/Track.js";
+import Album from "../models/Album.js";
+import Artist from "../models/Artist.js";
+import Music from "../models/Music.js";
+import { getContract } from "../config/blockchain.js";
 
 // Get artist profile
 export async function getArtistProfile(req, res) {
@@ -82,3 +83,92 @@ export async function toggleFollow(req, res) {
     res.status(500).json({ error: error.message });
   }
 }
+
+// Create this file if it doesn't exist
+export const createArtist = async (req, res) => {
+  try {
+    const { name, email, bio, genres } = req.body;
+
+    const newArtist = new Artist({
+      name,
+      email,
+      bio,
+      genres,
+    });
+
+    const savedArtist = await newArtist.save();
+    res.status(201).json(savedArtist);
+  } catch (error) {
+    console.error("Create artist error:", error);
+    res.status(500).json({ error: "Failed to create artist" });
+  }
+};
+
+export const getAllArtists = async (req, res) => {
+  try {
+    const artists = await Artist.find().sort({ createdAt: -1 });
+    res.json(artists);
+  } catch (error) {
+    console.error("Get artists error:", error);
+    res.status(500).json({ error: "Failed to fetch artists" });
+  }
+};
+
+export const getArtistById = async (req, res) => {
+  try {
+    const artist = await Artist.findById(req.params.id);
+    if (!artist) {
+      return res.status(404).json({ error: "Artist not found" });
+    }
+    res.json(artist);
+  } catch (error) {
+    console.error("Get artist error:", error);
+    res.status(500).json({ error: "Failed to fetch artist" });
+  }
+};
+
+export const updateArtist = async (req, res) => {
+  try {
+    const updatedArtist = await Artist.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedArtist) {
+      return res.status(404).json({ error: "Artist not found" });
+    }
+
+    res.json(updatedArtist);
+  } catch (error) {
+    console.error("Update artist error:", error);
+    res.status(500).json({ error: "Failed to update artist" });
+  }
+};
+
+export const deleteArtist = async (req, res) => {
+  try {
+    const deletedArtist = await Artist.findByIdAndDelete(req.params.id);
+
+    if (!deletedArtist) {
+      return res.status(404).json({ error: "Artist not found" });
+    }
+
+    res.json({ message: "Artist deleted successfully" });
+  } catch (error) {
+    console.error("Delete artist error:", error);
+    res.status(500).json({ error: "Failed to delete artist" });
+  }
+};
+
+export const getArtistMusic = async (req, res) => {
+  try {
+    const music = await Music.find({ artist: req.params.id }).sort({
+      createdAt: -1,
+    });
+    res.json(music);
+  } catch (error) {
+    console.error("Get artist music error:", error);
+    res.status(500).json({ error: "Failed to fetch artist music" });
+  }
+};

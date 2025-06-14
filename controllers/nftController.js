@@ -1,6 +1,6 @@
-import Album from "../models/Album";
-import { getContract } from "../config/blockchain";
-import { uploadToIPFS } from "../utils/ipfs";
+import Album from "../models/Album.js";
+import { getContract } from "../config/blockchain.js";
+import { uploadToIPFS } from "../utils/ipfs.js";
 
 // Create NFT album
 export async function createAlbum(req, res) {

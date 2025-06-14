@@ -1,24 +1,33 @@
 import express from 'express';
-import * as artistController from '../controllers/artistController.js';
+
+// Import each function explicitly
+import { 
+    createArtist,
+    getAllArtists, 
+    getArtistById,
+    updateArtist,
+    deleteArtist,
+    getArtistMusic 
+} from '../controllers/artistController.js';
 
 const router = express.Router();
 
 // Create new artist
-router.post('/', artistController.createArtist);
+router.post('/', createArtist);
 
 // Get all artists
-router.get('/', artistController.getAllArtists);
+router.get('/', getAllArtists);
 
 // Get artist by ID
-router.get('/:id', artistController.getArtistById);
+router.get('/:id', getArtistById);
 
 // Update artist
-router.put('/:id', artistController.updateArtist);
+router.put('/:id', updateArtist);
 
 // Delete artist
-router.delete('/:id', artistController.deleteArtist);
+router.delete('/:id', deleteArtist);
 
 // Get artist's music
-router.get('/:id/music', artistController.getArtistMusic);
+router.get('/:id/music', getArtistMusic);
 
 export default router;

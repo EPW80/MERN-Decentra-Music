@@ -1,12 +1,15 @@
-import { Router } from 'express';
-const router = Router();
-import { uploadMiddleware, uploadMusic, getAllMusic, getMusicById } from '../controllers/musicController';
+import express from 'express';
+import {
+    uploadMusic,
+    getAllMusic,
+    getMusicById,
+    uploadMiddleware
+} from '../controllers/musicController.js';
+
+const router = express.Router();
 
 // Upload music file
-router.post('/upload', 
-    uploadMiddleware,
-    uploadMusic
-);
+router.post('/upload', uploadMiddleware, uploadMusic);
 
 // Get all music
 router.get('/', getAllMusic);
