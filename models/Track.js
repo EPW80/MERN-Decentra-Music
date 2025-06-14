@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
+import { Schema, model } from "mongoose";
 
-const trackSchema = new mongoose.Schema({
+const trackSchema = new Schema({
   blockchainId: {
     type: Number,
     required: true,
@@ -11,7 +11,7 @@ const trackSchema = new mongoose.Schema({
     required: true,
   },
   artist: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: "User",
     required: true,
   },
@@ -31,7 +31,7 @@ const trackSchema = new mongoose.Schema({
   },
   likes: [
     {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
     },
   ],
@@ -41,4 +41,4 @@ const trackSchema = new mongoose.Schema({
   },
 });
 
-module.exports = mongoose.model("Track", trackSchema);
+export default model("Track", trackSchema);

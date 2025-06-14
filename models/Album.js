@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
+import { Schema, model } from "mongoose";
 
-const albumSchema = new mongoose.Schema({
+const albumSchema = new Schema({
   blockchainId: {
     type: Number,
     required: true,
@@ -11,13 +11,13 @@ const albumSchema = new mongoose.Schema({
     required: true,
   },
   artist: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: "User",
     required: true,
   },
   tracks: [
     {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Track",
     },
   ],
@@ -32,4 +32,4 @@ const albumSchema = new mongoose.Schema({
   },
 });
 
-module.exports = mongoose.model("Album", albumSchema);
+export default model("Album", albumSchema);

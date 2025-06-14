@@ -1,9 +1,9 @@
-const Album = require("../models/Album");
-const { getContract } = require("../config/blockchain");
-const { uploadToIPFS } = require("../utils/ipfs");
+import Album from "../models/Album";
+import { getContract } from "../config/blockchain";
+import { uploadToIPFS } from "../utils/ipfs";
 
 // Create NFT album
-exports.createAlbum = async (req, res) => {
+export async function createAlbum(req, res) {
   try {
     const { title, trackIds, price, totalSupply } = req.body;
     const coverFile = req.files?.cover;
@@ -55,10 +55,10 @@ exports.createAlbum = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Get all albums
-exports.getAlbums = async (req, res) => {
+export async function getAlbums(req, res) {
   try {
     const albums = await Album.find()
       .populate("artist", "username walletAddress")
@@ -69,10 +69,10 @@ exports.getAlbums = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Get album details
-exports.getAlbum = async (req, res) => {
+export async function getAlbum(req, res) {
   try {
     const album = await Album.findOne({ blockchainId: req.params.albumId })
       .populate("artist", "username walletAddress")
@@ -91,4 +91,4 @@ exports.getAlbum = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}

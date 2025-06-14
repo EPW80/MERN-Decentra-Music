@@ -1,10 +1,21 @@
-const Track = require("../models/Track");
-const User = require("../models/User");
-const { uploadToIPFS } = require("../utils/ipfs");
-const { getContract } = require("../config/blockchain");
+import Track from "../models/Track";
+import User from "../models/User";
+import { uploadToIPFS } from "../utils/ipfs";
+import { getContract } from "../config/blockchain";
+import Music from '../models/Music';
+import { uploadFile } from '../config/web3storage';
+import multer, { memoryStorage } from 'multer';
+
+// Configure multer for memory storage
+const upload = multer({ 
+    storage: memoryStorage(),
+    limits: {
+        fileSize: 50 * 1024 * 1024 // 50MB limit
+    }
+});
 
 // Upload track
-exports.uploadTrack = async (req, res) => {
+export async function uploadTrack(req, res) {
   try {
     const { title, genre, price, royaltyPercentage, isPremium } = req.body;
     const audioFile = req.files.audio;
@@ -45,10 +56,10 @@ exports.uploadTrack = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Get all tracks
-exports.getTracks = async (req, res) => {
+export async function getTracks(req, res) {
   try {
     const { genre, artist, premium } = req.query;
     const filter = {};
@@ -65,10 +76,10 @@ exports.getTracks = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Get single track
-exports.getTrack = async (req, res) => {
+export async function getTrack(req, res) {
   try {
     const track = await Track.findOne({
       blockchainId: req.params.trackId,
@@ -82,10 +93,10 @@ exports.getTrack = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Stream track
-exports.streamTrack = async (req, res) => {
+export async function streamTrack(req, res) {
   try {
     const { trackId } = req.params;
     const userAddress = req.body.walletAddress;
@@ -112,10 +123,10 @@ exports.streamTrack = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Like track
-exports.likeTrack = async (req, res) => {
+export async function likeTrack(req, res) {
   try {
     const track = await Track.findOne({ blockchainId: req.params.trackId });
 
@@ -136,4 +147,73 @@ exports.likeTrack = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
+
+// Upload music
+export async function uploadMusic(req, res) {
+    try {
+        const { title, artist, genre, album } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        // Create a File object for Web3.Storage
+        const web3File = new File([file.buffer], file.originalname, {
+            type: file.mimetype
+        });
+
+        // Upload to Web3.Storage
+        const ipfsResult = await uploadFile(web3File);
+
+        // Save to MongoDB
+        const newMusic = new Music({
+            title,
+            artist,
+            genre,
+            album,
+            ipfs: {
+                cid: ipfsResult.cid,
+                url: ipfsResult.url
+            },
+            fileSize: file.size,
+            mimeType: file.mimetype
+        });
+
+        const savedMusic = await newMusic.save();
+
+        res.status(201).json({
+            message: 'Music uploaded successfully',
+            music: savedMusic,
+            ipfsUrl: ipfsResult.url
+        });
+
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Failed to upload music' });
+    }
+}
+
+export async function getAllMusic(req, res) {
+    try {
+        const music = await Music.find().sort({ createdAt: -1 });
+        res.json(music);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch music' });
+    }
+}
+
+export async function getMusicById(req, res) {
+    try {
+        const music = await Music.findById(req.params.id);
+        if (!music) {
+            return res.status(404).json({ error: 'Music not found' });
+        }
+        res.json(music);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch music' });
+    }
+}
+
+export const uploadMiddleware = upload.single('musicFile');

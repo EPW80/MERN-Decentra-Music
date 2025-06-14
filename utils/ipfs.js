@@ -1,4 +1,4 @@
-const { create } = require("ipfs-http-client");
+import { create } from "ipfs-http-client";
 
 const ipfs = create({
   host: "ipfs.infura.io",
@@ -11,15 +11,15 @@ const ipfs = create({
   },
 });
 
-exports.uploadToIPFS = async (buffer) => {
+export async function uploadToIPFS(buffer) {
   try {
     const result = await ipfs.add(buffer);
     return result.path;
   } catch (error) {
     throw new Error("IPFS upload failed");
   }
-};
+}
 
-exports.getIPFSUrl = (hash) => {
+export function getIPFSUrl(hash) {
   return `https://ipfs.infura.io/ipfs/${hash}`;
-};
+}

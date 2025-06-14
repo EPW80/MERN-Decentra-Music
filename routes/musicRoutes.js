@@ -1,17 +1,17 @@
-const router = require('express').Router();
-const auth = require('../middleware/auth');
-const {
-  uploadTrack,
-  getTracks,
-  getTrack,
-  streamTrack,
-  likeTrack
-} = require('../controllers/musicController');
+import { Router } from 'express';
+const router = Router();
+import { uploadMiddleware, uploadMusic, getAllMusic, getMusicById } from '../controllers/musicController';
 
-router.post('/upload', auth, uploadTrack);
-router.get('/tracks', getTracks);
-router.get('/track/:trackId', getTrack);
-router.post('/stream/:trackId', streamTrack);
-router.post('/like/:trackId', auth, likeTrack);
+// Upload music file
+router.post('/upload', 
+    uploadMiddleware,
+    uploadMusic
+);
 
-module.exports = router;
+// Get all music
+router.get('/', getAllMusic);
+
+// Get music by ID
+router.get('/:id', getMusicById);
+
+export default router;

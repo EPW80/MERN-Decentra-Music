@@ -1,10 +1,10 @@
-const User = require("../models/User");
-const Track = require("../models/Track");
-const Album = require("../models/Album");
-const { getContract } = require("../config/blockchain");
+import User from "../models/User";
+import Track from "../models/Track";
+import Album from "../models/Album";
+import { getContract } from "../config/blockchain";
 
 // Get artist profile
-exports.getArtistProfile = async (req, res) => {
+export async function getArtistProfile(req, res) {
   try {
     const artist = await User.findOne({
       walletAddress: req.params.address.toLowerCase(),
@@ -31,10 +31,10 @@ exports.getArtistProfile = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Get artist earnings
-exports.getEarnings = async (req, res) => {
+export async function getEarnings(req, res) {
   try {
     const contract = await getContract();
     const earnings = await contract.artistEarnings(req.user.walletAddress);
@@ -46,10 +46,10 @@ exports.getEarnings = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
 
 // Follow/unfollow artist
-exports.toggleFollow = async (req, res) => {
+export async function toggleFollow(req, res) {
   try {
     const artist = await User.findOne({
       walletAddress: req.params.address.toLowerCase(),
@@ -81,4 +81,4 @@ exports.toggleFollow = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-};
+}
