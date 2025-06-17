@@ -16,61 +16,69 @@ app.use(express.urlencoded({ extended: true }));
 
 // Basic route
 app.get("/", (req, res) => {
-  res.json({ message: "Decentra Music Backend API" });
+  res.json({
+    message: "Decentra Music Backend API",
+    version: "1.0.0",
+    endpoints: {
+      public: "/api",
+      admin: "/api/admin",
+    },
+  });
 });
 
-// Test route to confirm server works
-app.get("/test", (req, res) => {
-  res.json({ message: "Server is working" });
-});
-
-// Add routes one by one to identify the problem
-
-// 1. Try music routes first
+// Load routes with error handling to identify the problematic one
 try {
-  console.log("Loading music routes...");
-  const musicRoutes = await import("./routes/musicRoutes.js");
-  app.use("/api/music", musicRoutes.default);
-  console.log("✅ Music routes loaded successfully");
+  console.log("Loading public routes...");
+  const publicRoutes = await import("./routes/public.js");
+  app.use("/api", publicRoutes.default);
+  console.log("✅ Public routes loaded successfully");
 } catch (error) {
-  console.error("❌ Failed to load music routes:", error.message);
-}
-
-// Comment out the other routes for now
-
-try {
-    console.log('Loading artist routes...');
-    const artistRoutes = await import('./routes/artistRoutes.js');
-    app.use('/api/artists', artistRoutes.default);
-    console.log('✅ Artist routes loaded successfully');
-} catch (error) {
-    console.error('❌ Failed to load artist routes:', error.message);
+  console.error("❌ Failed to load public routes:", error.message);
+  console.error("Stack:", error.stack);
 }
 
 try {
-    console.log('Loading NFT routes...');
-    const nftRoutes = await import('./routes/nftRoutes.js');
-    app.use('/api/nfts', nftRoutes.default);
-    console.log('✅ NFT routes loaded successfully');
+  console.log("Loading admin routes...");
+  const adminRoutes = await import("./routes/admin.js");
+  const { adminAuth } = await import("./middleware/adminAuth.js");
+  app.use("/api/admin", adminAuth, adminRoutes.default);
+  console.log("✅ Admin routes loaded successfully");
 } catch (error) {
-    console.error('❌ Failed to load NFT routes:', error.message);
+  console.error("❌ Failed to load admin routes:", error.message);
+  console.error("Stack:", error.stack);
 }
-
 
 // MongoDB connection
-const mongoURI = process.env.MONGODB_URI || "mongodb://localhost:27017/decentra-music";
+const mongoURI =
+  process.env.MONGODB_URI || "mongodb://localhost:27017/decentra-music";
 
 mongoose
   .connect(mongoURI)
   .then(() => {
     console.log("MongoDB connected");
+    console.log(`Database: ${mongoose.connection.name}`);
   })
   .catch((err) => {
     console.error("MongoDB connection error:", err);
+    // Don't exit on MongoDB error during development
+    console.warn("Continuing without MongoDB connection...");
   });
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Express error:", err.stack);
+  res.status(500).json({ error: "Something went wrong!" });
+});
+
+// Handle 404
+app.use("*", (req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Public API: http://localhost:${PORT}/api`);
+  console.log(`Admin API: http://localhost:${PORT}/api/admin`);
 });
 
 export default app;

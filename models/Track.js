@@ -1,44 +1,49 @@
-import { Schema, model } from "mongoose";
+import mongoose from "mongoose";
 
-const trackSchema = new Schema({
-  blockchainId: {
-    type: Number,
-    required: true,
-    unique: true,
-  },
-  title: {
-    type: String,
-    required: true,
-  },
-  artist: {
-    type: Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
-  },
-  ipfsHash: {
-    type: String,
-    required: true,
-  },
-  coverArt: String,
-  genre: String,
-  duration: Number,
-  price: String,
-  royaltyPercentage: Number,
-  isPremium: Boolean,
-  plays: {
-    type: Number,
-    default: 0,
-  },
-  likes: [
-    {
-      type: Schema.Types.ObjectId,
-      ref: "User",
+const TrackSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
     },
-  ],
-  createdAt: {
-    type: Date,
-    default: Date.now,
+    artist: {
+      type: String,
+      required: true,
+    },
+    genre: {
+      type: String,
+      required: true,
+    },
+    price: {
+      type: String, // Store as string to avoid precision issues with wei
+      required: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    releaseDate: {
+      type: Date,
+      default: Date.now,
+    },
+    ipfs: {
+      audioHash: {
+        type: String,
+        required: true,
+      },
+      coverHash: {
+        type: String,
+      },
+    },
+    metadata: {
+      duration: Number,
+      fileSize: Number,
+      sampleRate: Number,
+    },
   },
-});
+  {
+    timestamps: true,
+  }
+);
 
-export default model("Track", trackSchema);
+export default mongoose.model("Track", TrackSchema);

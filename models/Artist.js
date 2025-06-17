@@ -1,48 +1,53 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const ArtistSchema = new mongoose.Schema({
+const ArtistSchema = new mongoose.Schema(
+  {
     name: {
-        type: String,
-        required: true,
-        trim: true
+      type: String,
+      required: true,
+      trim: true,
     },
     email: {
-        type: String,
-        required: true,
-        unique: true,
-        lowercase: true,
-        trim: true
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
     bio: {
-        type: String,
-        maxlength: 1000
+      type: String,
+      maxlength: 1000,
     },
-    genres: [{
+    genres: [
+      {
         type: String,
-        trim: true
-    }],
+        trim: true,
+      },
+    ],
     profileImage: {
-        type: String
+      type: String,
     },
     socialLinks: {
-        twitter: String,
-        instagram: String,
-        website: String
+      twitter: String,
+      instagram: String,
+      website: String,
     },
     isVerified: {
-        type: Boolean,
-        default: false
+      type: Boolean,
+      default: false,
     },
     totalPlays: {
-        type: Number,
-        default: 0
+      type: Number,
+      default: 0,
     },
     totalFollowers: {
-        type: Number,
-        default: 0
-    }
-}, {
-    timestamps: true
-});
+      type: Number,
+      default: 0,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-export default mongoose.model('Artist', ArtistSchema);
+export default mongoose.model("Artist", ArtistSchema);
