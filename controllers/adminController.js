@@ -1,9 +1,10 @@
-import Music from '../models/Music.js';
+import Track from '../models/Track.js';
 import Purchase from '../models/Purchase.js';
-import web3StorageService from '../config/web3storage.js';
+import storageService from '../config/storage.js';
 
 export const uploadTrack = async (req, res) => {
     try {
+        console.log('Uploading track...');
         const { title, artist, genre, album, price } = req.body;
         const file = req.file;
 
@@ -11,27 +12,27 @@ export const uploadTrack = async (req, res) => {
             return res.status(400).json({ error: 'No audio file uploaded' });
         }
 
-        // Create a File object for Web3.Storage
-        const web3File = new File([file.buffer], file.originalname, {
-            type: file.mimetype
+        // Upload file
+        const uploadResult = await storageService.uploadFile(file, {
+            filename: file.originalname,
+            metadata: { title, artist, genre }
         });
 
-        // Upload to Web3.Storage
-        const ipfsResult = await web3StorageService.uploadFile(web3File);
-
-        // Save to MongoDB
-        const newTrack = new Music({
+        // Save to database
+        const newTrack = new Track({
             title,
             artist,
-            genre,
+            genre: genre || 'other',
             album,
-            price: price || 0.001,
+            price: price || '0.001',
             ipfs: {
-                cid: ipfsResult.cid,
-                url: ipfsResult.url
+                cid: uploadResult.cid,
+                url: uploadResult.url
             },
             fileSize: file.size,
-            mimeType: file.mimetype
+            mimeType: file.mimetype,
+            isActive: true,
+            storageProvider: uploadResult.provider
         });
 
         const savedTrack = await newTrack.save();
@@ -49,7 +50,7 @@ export const uploadTrack = async (req, res) => {
 
 export const updateTrack = async (req, res) => {
     try {
-        const updatedTrack = await Music.findByIdAndUpdate(
+        const updatedTrack = await Track.findByIdAndUpdate(
             req.params.id,
             req.body,
             { new: true, runValidators: true }
@@ -71,7 +72,7 @@ export const updateTrack = async (req, res) => {
 
 export const deleteTrack = async (req, res) => {
     try {
-        const deletedTrack = await Music.findByIdAndDelete(req.params.id);
+        const deletedTrack = await Track.findByIdAndDelete(req.params.id);
 
         if (!deletedTrack) {
             return res.status(404).json({ error: 'Track not found' });
@@ -86,45 +87,13 @@ export const deleteTrack = async (req, res) => {
 
 export const getAnalytics = async (req, res) => {
     try {
-        const totalTracks = await Music.countDocuments();
-        const totalPurchases = await Purchase.countDocuments();
+        const totalTracks = await Track.countDocuments();
         
-        const salesData = await Purchase.aggregate([
-            {
-                $group: {
-                    _id: null,
-                    totalRevenue: { $sum: { $toDouble: '$amount' } },
-                    avgSale: { $avg: { $toDouble: '$amount' } }
-                }
-            }
-        ]);
-
-        const topTracks = await Purchase.aggregate([
-            {
-                $group: {
-                    _id: '$trackId',
-                    sales: { $sum: 1 },
-                    revenue: { $sum: { $toDouble: '$amount' } }
-                }
-            },
-            { $sort: { sales: -1 } },
-            { $limit: 10 },
-            {
-                $lookup: {
-                    from: 'musics',
-                    localField: '_id',
-                    foreignField: '_id',
-                    as: 'track'
-                }
-            }
-        ]);
-
         res.json({
+            success: true,
             totalTracks,
-            totalPurchases,
-            totalRevenue: salesData[0]?.totalRevenue || 0,
-            avgSale: salesData[0]?.avgSale || 0,
-            topTracks
+            totalSales: 0,
+            revenue: 0
         });
     } catch (error) {
         console.error('Get analytics error:', error);

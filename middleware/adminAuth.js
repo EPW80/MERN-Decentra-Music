@@ -1,28 +1,22 @@
 export const adminAuth = (req, res, next) => {
-  const adminKey =
-    req.headers["x-admin-key"] ||
-    req.headers["authorization"]?.replace("Bearer ", "") ||
-    req.query.adminKey;
-
-  if (!adminKey) {
-    return res.status(401).json({
-      error: "Admin authentication required",
-      message:
-        "Provide admin key in x-admin-key header, Authorization header, or adminKey query parameter",
-    });
-  }
-
-  if (adminKey !== process.env.ADMIN_KEY) {
-    return res.status(403).json({
-      error: "Invalid admin key",
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  // Log admin access (optional)
-  console.log(
-    `Admin access: ${req.method} ${req.path} at ${new Date().toISOString()}`
-  );
-
-  next();
+    const adminKey = req.headers['x-admin-key'] || req.headers['authorization'];
+    
+    if (!adminKey) {
+        return res.status(401).json({ 
+            success: false,
+            error: 'Admin key required' 
+        });
+    }
+    
+    // Remove 'Bearer ' prefix if present
+    const key = adminKey.replace('Bearer ', '');
+    
+    if (key !== process.env.ADMIN_KEY) {
+        return res.status(403).json({ 
+            success: false,
+            error: 'Invalid admin key' 
+        });
+    }
+    
+    next();
 };

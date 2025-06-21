@@ -1,8 +1,7 @@
 import Track from "../models/Track.js";
 import { uploadToIPFS } from "../utils/ipfs.js";
 import { getContract } from "../config/blockchain.js";
-import Music from '../models/Music.js';
-import uploadFile  from '../config/web3storage.js';
+import uploadFile  from '../config/storage.js';
 import multer, { memoryStorage } from 'multer';
 
 // Configure multer for memory storage

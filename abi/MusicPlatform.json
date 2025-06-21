@@ -1,1 +1,10 @@
-[]
+{
+  "contractName": "MusicPlatform",
+  "abi": [],
+  "bytecode": "",
+  "networks": {},
+  "compiler": {
+    "name": "solc",
+    "version": "0.8.19+commit.7dd6d404.Emscripten.clang"
+  }
+}

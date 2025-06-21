@@ -2,87 +2,38 @@ import express from "express";
 
 const router = express.Router();
 
-// Temporary simple handlers until you create the proper controllers
-router.get("/tracks", async (req, res) => {
-  try {
-    // TODO: Import and use getAllTracks from trackController
-    res.json({
-      message: "Get all tracks endpoint",
-      tracks: [],
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch tracks" });
-  }
-});
+// Import controllers - but let's start simple to identify the issue
+console.log("Setting up public routes...");
 
-router.get("/tracks/:id", async (req, res) => {
-  try {
-    // TODO: Import and use getTrackDetails from trackController
-    res.json({
-      message: "Get track details endpoint",
-      trackId: req.params.id,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch track details" });
-  }
-});
-
-router.get("/artists", async (req, res) => {
-  try {
-    // TODO: Import and use getAllArtists from artistController
-    res.json({
-      message: "Get all artists endpoint",
-      artists: [],
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch artists" });
-  }
-});
-
-router.get("/artists/:id", async (req, res) => {
-  try {
-    // TODO: Import and use getArtistById from artistController
-    res.json({
-      message: "Get artist by ID endpoint",
-      artistId: req.params.id,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch artist" });
-  }
-});
-
-router.post("/verify-purchase", async (req, res) => {
-  try {
-    // TODO: Import and use verifyPurchase from trackController
-    res.json({
-      message: "Verify purchase endpoint",
-      body: req.body,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to verify purchase" });
-  }
-});
-
-router.get("/download/:trackId/:txHash", async (req, res) => {
-  try {
-    // TODO: Import and use downloadTrack from trackController
-    res.json({
-      message: "Download track endpoint",
-      trackId: req.params.trackId,
-      txHash: req.params.txHash,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to get download link" });
-  }
-});
-
-// Health check
+// Basic health check first
 router.get("/health", (req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    version: "1.0.0",
   });
 });
 
+// Test route
+router.get("/test", (req, res) => {
+  res.json({ message: "Public routes working" });
+});
+
+// Add routes one by one to identify the problematic one
+try {
+  console.log("Importing track controller...");
+  const trackController = await import("../controllers/trackController.js");
+
+  // Simple routes without validation first
+  router.get("/tracks", trackController.getAllTracks);
+  console.log("✅ Basic tracks route added");
+
+  router.get("/tracks/:id", trackController.getTrackDetails);
+  console.log("✅ Track details route added");
+} catch (error) {
+  console.error("❌ Failed to import track controller:", error.message);
+}
+
+console.log("Public routes setup complete");
 export default router;
