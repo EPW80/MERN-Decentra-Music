@@ -1,56 +1,60 @@
 import multer from 'multer';
+import path from 'path';
 
-// Configure multer for memory storage
-const upload = multer({ 
-    storage: multer.memoryStorage(),
+console.log('🔄 Configuring upload middleware...');
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+
+const upload = multer({
+    storage: storage,
     limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
+        fileSize: 50 * 1024 * 1024, // 50MB limit
     },
     fileFilter: (req, file, cb) => {
-        // Accept audio files only
-        if (file.mimetype.startsWith('audio/')) {
+        console.log('📁 File filter check:', {
+            fieldname: file.fieldname,
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size
+        });
+        
+        // Accept audio files - MP3 files often have different MIME types
+        const allowedMimes = [
+            'audio/mpeg',     // Standard MP3
+            'audio/mp3',      // Alternative MP3
+            'audio/mpeg3',    // Another MP3 variant
+            'audio/x-mpeg-3', // Yet another MP3 variant
+            'audio/wav', 
+            'audio/mp4',
+            'audio/aac',
+            'audio/ogg',
+            'audio/flac',
+            'application/octet-stream' // Sometimes MP3s are detected as this
+        ];
+        
+        // Also check file extension for MP3 files
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        const allowedExtensions = ['.mp3', '.wav', '.mp4', '.aac', '.ogg', '.flac'];
+        
+        if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
+            console.log('✅ File accepted:', {
+                mimetype: file.mimetype,
+                extension: fileExtension
+            });
             cb(null, true);
         } else {
-            cb(new Error('Only audio files are allowed!'), false);
+            console.log('❌ File type rejected:', {
+                mimetype: file.mimetype,
+                extension: fileExtension,
+                allowedMimes,
+                allowedExtensions
+            });
+            cb(new Error(`File type not allowed: ${file.mimetype} (${fileExtension})`), false);
         }
     }
 });
 
-// Export the middleware
-export const uploadMiddleware = upload.single('track');
+export const uploadMiddleware = upload.single('file');
 
-// Optional: Export additional configurations for different use cases
-export const uploadMultiple = upload.array('tracks', 10); // For multiple files
-export const uploadFields = upload.fields([
-    { name: 'track', maxCount: 1 },
-    { name: 'cover', maxCount: 1 }
-]); // For both audio and cover image
-
-// Optional: Export error handler for multer errors
-export const handleUploadError = (error, req, res, next) => {
-    if (error instanceof multer.MulterError) {
-        if (error.code === 'LIMIT_FILE_SIZE') {
-            return res.status(413).json({ 
-                error: 'File too large. Maximum size is 50MB.' 
-            });
-        }
-        if (error.code === 'LIMIT_FILE_COUNT') {
-            return res.status(400).json({ 
-                error: 'Too many files uploaded.' 
-            });
-        }
-        if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-            return res.status(400).json({ 
-                error: 'Unexpected field name in form data.' 
-            });
-        }
-    }
-    
-    if (error.message === 'Only audio files are allowed!') {
-        return res.status(400).json({ 
-            error: 'Invalid file type. Only audio files are allowed.' 
-        });
-    }
-    
-    next(error);
-};
+console.log('✅ Upload middleware configured');
