@@ -1,125 +1,361 @@
 import Track from '../models/Track.js';
-import Purchase from '../models/Purchase.js';
-import storageService from '../config/storage.js';
+import storageService from '../services/StorageService.js';
 
+/**
+ * Admin Track Operations
+ * - Upload tracks
+ * - Update tracks
+ * - Delete tracks
+ * - Manage track status
+ */
+
+// Upload new track
 export const uploadTrack = async (req, res) => {
     try {
-        console.log('Uploading track...');
-        const { title, artist, genre, album, price } = req.body;
+        console.log('📤 Admin track upload request');
+        
+        const { title, artist, genre, album, price, description } = req.body;
         const file = req.file;
 
-        if (!file) {
-            return res.status(400).json({ error: 'No audio file uploaded' });
+        // Validation
+        if (!title || !artist) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Title and artist are required',
+                received: { title, artist, genre, album }
+            });
         }
 
-        // Upload file
+        if (!file) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Audio file is required' 
+            });
+        }
+
+        console.log(`📁 Uploading: ${title} by ${artist}`);
+
+        // Upload to storage
         const uploadResult = await storageService.uploadFile(file, {
             filename: file.originalname,
-            metadata: { title, artist, genre }
+            trackInfo: { title, artist, genre, album },
+            uploadedBy: 'admin',
+            uploadedAt: new Date().toISOString()
         });
 
-        // Save to database
-        const newTrack = new Track({
-            title,
-            artist,
-            genre: genre || 'other',
-            album,
+        if (!uploadResult.success) {
+            throw new Error(`Storage upload failed: ${uploadResult.error}`);
+        }
+
+        // Create track record
+        const trackData = {
+            title: title.trim(),
+            artist: artist.trim(),
+            genre: genre?.trim() || 'other',
+            album: album?.trim() || '',
             price: price || '0.001',
+            description: description?.trim() || '',
+            
+            // Storage info
+            storage: {
+                provider: uploadResult.provider,
+                cid: uploadResult.cid,
+                url: uploadResult.url,
+                filename: uploadResult.filename
+            },
+            
+            // Legacy compatibility
             ipfs: {
                 cid: uploadResult.cid,
                 url: uploadResult.url
             },
-            fileSize: file.size,
+            
+            // File metadata
+            fileSize: uploadResult.size,
             mimeType: file.mimetype,
+            originalFilename: file.originalname,
+            
+            // Status
             isActive: true,
-            storageProvider: uploadResult.provider
-        });
+            isPublic: true,
+            
+            // Initial stats
+            plays: 0,
+            downloads: 0,
+            likes: []
+        };
 
+        const newTrack = new Track(trackData);
         const savedTrack = await newTrack.save();
 
+        console.log(`✅ Track uploaded successfully: ${savedTrack._id}`);
+
         res.status(201).json({
+            success: true,
             message: 'Track uploaded successfully',
-            track: savedTrack
+            track: {
+                id: savedTrack._id,
+                title: savedTrack.title,
+                artist: savedTrack.artist,
+                genre: savedTrack.genre,
+                album: savedTrack.album,
+                price: savedTrack.price,
+                url: savedTrack.storage.url,
+                fileSize: savedTrack.fileSize,
+                createdAt: savedTrack.createdAt
+            },
+            storage: {
+                provider: uploadResult.provider,
+                cid: uploadResult.cid,
+                url: uploadResult.url
+            }
         });
 
     } catch (error) {
-        console.error('Upload track error:', error);
-        res.status(500).json({ error: 'Failed to upload track' });
+        console.error('❌ Admin track upload failed:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Track upload failed',
+            details: error.message
+        });
     }
 };
 
+// Update track
 export const updateTrack = async (req, res) => {
     try {
-        const updatedTrack = await Track.findByIdAndUpdate(
-            req.params.id,
-            req.body,
+        const { id } = req.params;
+        const updates = req.body;
+        
+        // Remove sensitive fields that shouldn't be updated
+        delete updates._id;
+        delete updates.storage;
+        delete updates.ipfs;
+        delete updates.fileSize;
+        delete updates.mimeType;
+        delete updates.plays;
+        delete updates.downloads;
+        delete updates.likes;
+        delete updates.createdAt;
+        delete updates.updatedAt;
+
+        const track = await Track.findByIdAndUpdate(
+            id,
+            { ...updates, updatedAt: new Date() },
             { new: true, runValidators: true }
         );
 
-        if (!updatedTrack) {
-            return res.status(404).json({ error: 'Track not found' });
+        if (!track) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Track not found' 
+            });
         }
 
-        res.json({
-            message: 'Track updated successfully',
-            track: updatedTrack
-        });
-    } catch (error) {
-        console.error('Update track error:', error);
-        res.status(500).json({ error: 'Failed to update track' });
-    }
-};
-
-export const deleteTrack = async (req, res) => {
-    try {
-        const deletedTrack = await Track.findByIdAndDelete(req.params.id);
-
-        if (!deletedTrack) {
-            return res.status(404).json({ error: 'Track not found' });
-        }
-
-        res.json({ message: 'Track deleted successfully' });
-    } catch (error) {
-        console.error('Delete track error:', error);
-        res.status(500).json({ error: 'Failed to delete track' });
-    }
-};
-
-export const getAnalytics = async (req, res) => {
-    try {
-        const totalTracks = await Track.countDocuments();
-        
         res.json({
             success: true,
-            totalTracks,
-            totalSales: 0,
-            revenue: 0
+            message: 'Track updated successfully',
+            track
         });
+
     } catch (error) {
-        console.error('Get analytics error:', error);
-        res.status(500).json({ error: 'Failed to get analytics' });
+        console.error('Update track error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to update track' 
+        });
     }
 };
 
-export const getSalesData = async (req, res) => {
+// Delete track
+export const deleteTrack = async (req, res) => {
     try {
-        const { startDate, endDate, limit = 50 } = req.query;
+        const { id } = req.params;
+        const { permanent = false } = req.query;
+
+        const track = await Track.findById(id);
         
-        let filter = {};
-        if (startDate || endDate) {
-            filter.purchaseDate = {};
-            if (startDate) filter.purchaseDate.$gte = new Date(startDate);
-            if (endDate) filter.purchaseDate.$lte = new Date(endDate);
+        if (!track) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Track not found' 
+            });
         }
 
-        const sales = await Purchase.find(filter)
-            .populate('trackId', 'title artist')
-            .sort({ purchaseDate: -1 })
-            .limit(parseInt(limit));
+        if (permanent === 'true') {
+            // Permanent deletion
+            try {
+                // Try to delete from storage
+                await storageService.deleteFile(track.storage.cid);
+            } catch (storageError) {
+                console.warn('Storage deletion failed:', storageError.message);
+            }
+            
+            await Track.findByIdAndDelete(id);
+            
+            res.json({
+                success: true,
+                message: 'Track permanently deleted'
+            });
+        } else {
+            // Soft deletion
+            track.isActive = false;
+            track.isPublic = false;
+            await track.save();
+            
+            res.json({
+                success: true,
+                message: 'Track deactivated'
+            });
+        }
 
-        res.json(sales);
     } catch (error) {
-        console.error('Get sales data error:', error);
-        res.status(500).json({ error: 'Failed to get sales data' });
+        console.error('Delete track error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to delete track' 
+        });
+    }
+};
+
+// Get all tracks (including inactive for admin)
+export const getAllTracksAdmin = async (req, res) => {
+    try {
+        const { 
+            status = 'all', 
+            page = 1, 
+            limit = 20,
+            sort = 'newest'
+        } = req.query;
+
+        // Build filter
+        const filter = {};
+        
+        if (status === 'active') {
+            filter.isActive = true;
+        } else if (status === 'inactive') {
+            filter.isActive = false;
+        }
+        // 'all' shows both active and inactive
+
+        // Build sort
+        let sortOption = {};
+        switch (sort) {
+            case 'newest':
+                sortOption = { createdAt: -1 };
+                break;
+            case 'oldest':
+                sortOption = { createdAt: 1 };
+                break;
+            case 'popular':
+                sortOption = { plays: -1 };
+                break;
+            case 'title':
+                sortOption = { title: 1 };
+                break;
+            default:
+                sortOption = { createdAt: -1 };
+        }
+
+        // Execute query
+        const skip = (page - 1) * limit;
+        const [tracks, total] = await Promise.all([
+            Track.find(filter)
+                .sort(sortOption)
+                .skip(skip)
+                .limit(parseInt(limit)),
+            Track.countDocuments(filter)
+        ]);
+
+        res.json({
+            success: true,
+            tracks,
+            pagination: {
+                current: parseInt(page),
+                pages: Math.ceil(total / limit),
+                total,
+                hasNext: page < Math.ceil(total / limit),
+                hasPrev: page > 1
+            },
+            filters: { status, sort }
+        });
+
+    } catch (error) {
+        console.error('Get admin tracks error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch tracks' 
+        });
+    }
+};
+
+// Get analytics
+export const getAnalytics = async (req, res) => {
+    try {
+        const [
+            totalTracks,
+            activeTracks,
+            totalPlays,
+            totalDownloads,
+            storageStats,
+            genreStats,
+            recentTracks
+        ] = await Promise.all([
+            Track.countDocuments(),
+            Track.countDocuments({ isActive: true }),
+            Track.aggregate([
+                { $group: { _id: null, total: { $sum: '$plays' } } }
+            ]),
+            Track.aggregate([
+                { $group: { _id: null, total: { $sum: '$downloads' } } }
+            ]),
+            Track.aggregate([
+                {
+                    $group: {
+                        _id: '$storage.provider',
+                        count: { $sum: 1 },
+                        totalSize: { $sum: '$fileSize' }
+                    }
+                }
+            ]),
+            Track.aggregate([
+                { $group: { _id: '$genre', count: { $sum: 1 } } },
+                { $sort: { count: -1 } }
+            ]),
+            Track.find({ isActive: true })
+                .sort({ createdAt: -1 })
+                .limit(5)
+                .select('title artist createdAt plays')
+        ]);
+
+        res.json({
+            success: true,
+            analytics: {
+                tracks: {
+                    total: totalTracks,
+                    active: activeTracks,
+                    inactive: totalTracks - activeTracks
+                },
+                engagement: {
+                    totalPlays: totalPlays[0]?.total || 0,
+                    totalDownloads: totalDownloads[0]?.total || 0,
+                    averagePlays: totalTracks > 0 ? Math.round((totalPlays[0]?.total || 0) / totalTracks) : 0
+                },
+                storage: {
+                    current: storageService.getStatus(),
+                    distribution: storageStats
+                },
+                genres: genreStats,
+                recentTracks
+            },
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Analytics error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get analytics' 
+        });
     }
 };

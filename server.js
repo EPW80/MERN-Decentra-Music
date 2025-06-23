@@ -75,31 +75,28 @@ console.log("✅ MongoDB setup complete, initializing services...");
 try {
   console.log("🔍 Loading blockchain services...");
   const blockchainModule = await import("./config/blockchain.js");
+  const blockchainService = await import("./services/BlockchainService.js");
+
   console.log("✅ Blockchain module loaded");
 
-  const { validateABI, isMusicPlatformAvailable } = blockchainModule;
-
-  const abiValidation = validateABI();
-  if (abiValidation.valid) {
-    console.log("✅ ABI is valid");
+  // Initialize blockchain service
+  if (blockchainModule.isWalletAvailable()) {
+    await blockchainService.default.initialize();
+    console.log("✅ Blockchain service ready");
   } else {
-    console.log("⚠️ ABI validation failed:", abiValidation.error);
+    console.log("⚠️ Blockchain service disabled (wallet not available)");
   }
-
-  console.log("🔗 Music Platform Available:", isMusicPlatformAvailable());
 } catch (error) {
   console.error("❌ Blockchain service failed:", error.message);
 }
 
+console.log('🔍 Loading storage services...');
 try {
-  console.log("🔍 Loading storage services...");
-  const storageModule = await import("./config/storage.js");
-  console.log("✅ Storage module loaded");
-
-  await storageModule.default.initialize();
-  console.log("✅ Storage service initialized");
+  const storageService = await import('./services/StorageService.js');
+  const status = await storageService.default.initialize();
+  console.log('✅ Storage service ready:', status);
 } catch (error) {
-  console.error("❌ Storage service failed:", error.message);
+  console.error('❌ Storage service failed:', error.message);
 }
 
 console.log("✅ All services initialized, setting up error handlers...");

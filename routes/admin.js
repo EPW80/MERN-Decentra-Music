@@ -1,40 +1,35 @@
 import express from "express";
+import * as adminTrackController from "../controllers/adminController.js";
+import * as blockchainController from "../controllers/blockchainController.js";
+import { uploadMiddleware } from "../middleware/upload.js";
+import { adminAuth } from "../middleware/adminAuth.js";
 
 const router = express.Router();
 
 console.log("Setting up admin routes...");
 
-// Simple admin auth middleware
-const simpleAdminAuth = (req, res, next) => {
-  const adminKey = req.headers["x-admin-key"];
-  if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-    return res.status(403).json({ error: "Invalid admin key" });
-  }
-  next();
-};
-
-// Apply auth
-router.use(simpleAdminAuth);
+// Apply admin authentication
+router.use(adminAuth);
 
 // Test route
 router.get("/test", (req, res) => {
   res.json({ message: "Admin routes working" });
 });
 
-// Add admin routes
-try {
-  console.log("Importing admin controller...");
-  const adminController = await import("../controllers/adminController.js");
-  const { uploadMiddleware } = await import("../middleware/upload.js");
+// Admin track routes
+router.post("/tracks", uploadMiddleware, adminTrackController.uploadTrack);
+router.get("/tracks", adminTrackController.getAllTracksAdmin);
+router.put("/tracks/:id", adminTrackController.updateTrack);
+router.delete("/tracks/:id", adminTrackController.deleteTrack);
+router.get("/analytics", adminTrackController.getAnalytics);
 
-  router.post("/tracks", uploadMiddleware, adminController.uploadTrack);
-  console.log("✅ Upload track route added");
-
-  router.get("/analytics", adminController.getAnalytics);
-  console.log("✅ Analytics route added");
-} catch (error) {
-  console.error("❌ Failed to import admin controller:", error.message);
-}
+// Blockchain admin routes
+router.post('/tracks/:trackId/blockchain', blockchainController.addTrackToBlockchain);
+router.post('/blockchain/:contractId/purchase', blockchainController.purchaseTrack);
+router.get('/blockchain/:contractId/check', blockchainController.checkPurchase);
+router.post('/blockchain/withdraw', blockchainController.withdrawArtistBalance);
+router.get('/blockchain/status', blockchainController.getBlockchainStatus);
+router.get('/transactions/:txHash', blockchainController.getTransactionStatus);
 
 console.log("Admin routes setup complete");
 export default router;
