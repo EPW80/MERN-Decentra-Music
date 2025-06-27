@@ -1,60 +1,82 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 
-console.log('🔄 Configuring upload middleware...');
+/**
+ * File Upload Middleware Configuration
+ */
+
+// Ensure uploads directory exists
+const uploadsDir = './uploads';
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log('📁 Created uploads directory');
+}
 
 // Configure multer for file uploads
-const storage = multer.memoryStorage();
-
-const upload = multer({
-    storage: storage,
-    limits: {
-        fileSize: 50 * 1024 * 1024, // 50MB limit
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
     },
-    fileFilter: (req, file, cb) => {
-        console.log('📁 File filter check:', {
-            fieldname: file.fieldname,
-            originalname: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size
-        });
-        
-        // Accept audio files - MP3 files often have different MIME types
-        const allowedMimes = [
-            'audio/mpeg',     // Standard MP3
-            'audio/mp3',      // Alternative MP3
-            'audio/mpeg3',    // Another MP3 variant
-            'audio/x-mpeg-3', // Yet another MP3 variant
-            'audio/wav', 
-            'audio/mp4',
-            'audio/aac',
-            'audio/ogg',
-            'audio/flac',
-            'application/octet-stream' // Sometimes MP3s are detected as this
-        ];
-        
-        // Also check file extension for MP3 files
-        const fileExtension = path.extname(file.originalname).toLowerCase();
-        const allowedExtensions = ['.mp3', '.wav', '.mp4', '.aac', '.ogg', '.flac'];
-        
-        if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
-            console.log('✅ File accepted:', {
-                mimetype: file.mimetype,
-                extension: fileExtension
-            });
-            cb(null, true);
-        } else {
-            console.log('❌ File type rejected:', {
-                mimetype: file.mimetype,
-                extension: fileExtension,
-                allowedMimes,
-                allowedExtensions
-            });
-            cb(new Error(`File type not allowed: ${file.mimetype} (${fileExtension})`), false);
-        }
+    filename: (req, file, cb) => {
+        // Generate unique filename
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        const name = path.basename(file.originalname, ext);
+        cb(null, `${name}-${uniqueSuffix}${ext}`);
     }
 });
 
-export const uploadMiddleware = upload.single('file');
+// File filter for audio files
+const fileFilter = (req, file, cb) => {
+    console.log('📁 File filter check:', {
+        fieldname: file.fieldname,
+        originalname: file.originalname,
+        mimetype: file.mimetype
+    });
+
+    // Allowed audio file types
+    const allowedTypes = [
+        'audio/mpeg',           // .mp3
+        'audio/mp3',            // .mp3 (alternative)
+        'audio/wav',            // .wav
+        'audio/wave',           // .wav (alternative)
+        'audio/x-wav',          // .wav (alternative)
+        'audio/flac',           // .flac
+        'audio/x-flac',         // .flac (alternative)
+        'audio/aac',            // .aac
+        'audio/ogg',            // .ogg
+        'audio/webm',           // .webm
+        'application/octet-stream' // Generic binary (sometimes used for audio)
+    ];
+
+    // Check file extension as backup
+    const allowedExtensions = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.webm'];
+    const fileExt = path.extname(file.originalname).toLowerCase();
+
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExt)) {
+        console.log('✅ File accepted:', { mimetype: file.mimetype, extension: fileExt });
+        cb(null, true);
+    } else {
+        console.log('❌ File rejected:', { mimetype: file.mimetype, extension: fileExt });
+        cb(new Error(`Invalid file type. Allowed: ${allowedExtensions.join(', ')}`), false);
+    }
+};
+
+// Configure multer
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB limit
+        fieldSize: 10 * 1024 * 1024   // 10MB for text fields
+    }
+});
+
+// Export middleware
+export const uploadSingle = upload.single('file');
+
+// Export multer instance for custom configurations
+export { upload };
 
 console.log('✅ Upload middleware configured');

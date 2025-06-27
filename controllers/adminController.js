@@ -13,27 +13,51 @@ import storageService from '../services/StorageService.js';
 export const uploadTrack = async (req, res) => {
     try {
         console.log('📤 Admin track upload request');
+        console.log('📋 Request body:', req.body);
+        console.log('📁 Request file:', req.file ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+            filename: req.file.filename
+        } : 'No file uploaded');
+        console.log('📊 Request headers:', {
+            'content-type': req.headers['content-type'],
+            'content-length': req.headers['content-length']
+        });
         
         const { title, artist, genre, album, price, description } = req.body;
         const file = req.file;
 
-        // Validation
+        // Enhanced validation with better logging
         if (!title || !artist) {
+            console.log('❌ Validation failed - missing required fields');
+            console.log('   Title:', title || 'MISSING');
+            console.log('   Artist:', artist || 'MISSING');
+            console.log('   All body fields:', req.body);
+            
             return res.status(400).json({ 
                 success: false,
                 error: 'Title and artist are required',
-                received: { title, artist, genre, album }
+                received: { 
+                    title: title || null, 
+                    artist: artist || null, 
+                    genre: genre || null, 
+                    album: album || null,
+                    hasFile: !!file
+                }
             });
         }
 
         if (!file) {
+            console.log('❌ No file uploaded');
             return res.status(400).json({ 
                 success: false,
-                error: 'Audio file is required' 
+                error: 'Audio file is required',
+                received: { title, artist, genre, album }
             });
         }
 
-        console.log(`📁 Uploading: ${title} by ${artist}`);
+        console.log(`📁 Processing upload: "${title}" by "${artist}"`);
 
         // Upload to storage
         const uploadResult = await storageService.uploadFile(file, {

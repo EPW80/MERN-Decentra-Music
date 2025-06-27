@@ -1,10 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 /**
  * Unified Storage Service
@@ -68,31 +67,68 @@ class StorageService {
    */
   async uploadFile(file, metadata = {}) {
     if (!this.initialized) {
-      throw new Error('Storage service not initialized');
+      console.log('⚠️ Storage not initialized, attempting to initialize...');
+      await this.initialize();
     }
 
-    const uploadData = {
-      buffer: this.extractBuffer(file),
-      filename: metadata.filename || file.originalname || 'untitled',
-      mimetype: file.mimetype || 'application/octet-stream',
-      size: file.size || (file.buffer ? file.buffer.length : 0),
-      metadata
-    };
+    // Handle different file input types
+    let uploadData;
+    
+    if (file.path && fs.existsSync(file.path)) {
+      // File uploaded by multer to disk
+      const buffer = fs.readFileSync(file.path);
+      uploadData = {
+        buffer,
+        filename: metadata.filename || file.originalname || `file-${Date.now()}`,
+        mimetype: file.mimetype || 'application/octet-stream',
+        size: file.size || buffer.length,
+        metadata,
+        tempPath: file.path // Store temp path for cleanup
+      };
+    } else if (file.buffer) {
+      // File in memory
+      uploadData = {
+        buffer: file.buffer,
+        filename: metadata.filename || file.originalname || `file-${Date.now()}`,
+        mimetype: file.mimetype || 'application/octet-stream',
+        size: file.size || file.buffer.length,
+        metadata
+      };
+    } else {
+      throw new Error('Invalid file object - no path or buffer found');
+    }
 
-    console.log(`📤 Uploading to ${this.provider}: ${uploadData.filename}`);
+    console.log(`📤 Uploading to ${this.provider}: ${uploadData.filename} (${uploadData.size} bytes)`);
 
+    let result;
     switch (this.provider) {
       case 'local':
-        return await this.uploadToLocal(uploadData);
+        result = await this.uploadToLocal(uploadData);
+        break;
       case 'ipfs':
-        return await this.uploadToIPFS(uploadData);
+        result = await this.uploadToIPFS(uploadData);
+        break;
       case 'web3storage':
-        return await this.uploadToWeb3Storage(uploadData);
+        result = await this.uploadToWeb3Storage(uploadData);
+        break;
       case 'pinata':
-        return await this.uploadToPinata(uploadData);
+        result = await this.uploadToPinata(uploadData);
+        break;
       default:
         throw new Error(`Upload not implemented for: ${this.provider}`);
     }
+
+    // Clean up temp file if it exists
+    if (uploadData.tempPath && fs.existsSync(uploadData.tempPath)) {
+      try {
+        fs.unlinkSync(uploadData.tempPath);
+        console.log('🧹 Cleaned up temp file');
+      } catch (error) {
+        console.warn('⚠️ Failed to clean up temp file:', error.message);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -142,36 +178,61 @@ class StorageService {
     
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
+      console.log('📁 Created uploads directory:', uploadsDir);
     }
     
     this.config = {
       uploadsDir,
       baseUrl: process.env.BASE_URL || 'http://localhost:8000'
     };
+    
+    console.log('✅ Local storage configured:', {
+      uploadsDir,
+      baseUrl: this.config.baseUrl
+    });
   }
 
   async uploadToLocal(uploadData) {
-    const timestamp = Date.now();
-    const sanitizedFilename = this.sanitizeFilename(uploadData.filename);
-    const uniqueFilename = `${timestamp}-${sanitizedFilename}`;
-    const filePath = path.join(this.config.uploadsDir, uniqueFilename);
-    
-    fs.writeFileSync(filePath, uploadData.buffer);
-    
-    const cid = `local_${Buffer.from(uniqueFilename).toString('base64').substring(0, 20)}`;
-    const url = `${this.config.baseUrl}/uploads/${uniqueFilename}`;
-    
-    return {
-      success: true,
-      provider: 'local',
-      cid,
-      url,
-      filename: uniqueFilename,
-      originalFilename: uploadData.filename,
-      size: uploadData.size,
-      path: filePath,
-      metadata: uploadData.metadata
-    };
+    try {
+      const timestamp = Date.now();
+      const random = Math.round(Math.random() * 1E9);
+      const ext = path.extname(uploadData.filename);
+      const baseName = path.basename(uploadData.filename, ext);
+      const sanitizedBaseName = this.sanitizeFilename(baseName);
+      const uniqueFilename = `${sanitizedBaseName}-${timestamp}-${random}${ext}`;
+      
+      const filePath = path.join(this.config.uploadsDir, uniqueFilename);
+      
+      // Write file to uploads directory
+      fs.writeFileSync(filePath, uploadData.buffer);
+      
+      // Get file stats
+      const stats = fs.statSync(filePath);
+      
+      const cid = `local_${Buffer.from(uniqueFilename).toString('base64').substring(0, 20)}`;
+      const url = `${this.config.baseUrl}/uploads/${uniqueFilename}`;
+      
+      console.log('✅ Local upload successful:', {
+        filename: uniqueFilename,
+        size: stats.size,
+        url
+      });
+      
+      return {
+        success: true,
+        provider: 'local',
+        cid,
+        url,
+        filename: uniqueFilename,
+        originalFilename: uploadData.filename,
+        size: stats.size,
+        path: filePath,
+        metadata: uploadData.metadata
+      };
+    } catch (error) {
+      console.error('❌ Local upload failed:', error);
+      throw new Error(`Local storage upload failed: ${error.message}`);
+    }
   }
 
   async deleteFromLocal(cid) {
@@ -185,17 +246,19 @@ class StorageService {
       if (targetFile) {
         const filePath = path.join(this.config.uploadsDir, targetFile);
         fs.unlinkSync(filePath);
+        console.log('🗑️ File deleted:', targetFile);
         return { success: true, deleted: filePath };
       }
       
       return { success: false, reason: 'File not found' };
     } catch (error) {
+      console.error('❌ Delete failed:', error);
       return { success: false, reason: error.message };
     }
   }
 
   /**
-   * IPFS Implementation (using js-ipfs or HTTP API)
+   * IPFS Implementation (using HTTP API)
    */
   async initializeIPFS() {
     // Try to connect to local IPFS node first
@@ -206,9 +269,15 @@ class StorageService {
     
     // Test connection
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      
       const response = await fetch(`${this.config.apiUrl}/api/v0/version`, {
-        method: 'POST'
+        method: 'POST',
+        signal: controller.signal
       });
+      
+      clearTimeout(timeout);
       
       if (!response.ok) {
         throw new Error('IPFS node not responding');
@@ -216,37 +285,45 @@ class StorageService {
       
       console.log('✅ Connected to IPFS node');
     } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('IPFS connection timeout');
+      }
       throw new Error(`IPFS connection failed: ${error.message}`);
     }
   }
 
   async uploadToIPFS(uploadData) {
-    const formData = new FormData();
-    const blob = new Blob([uploadData.buffer], { type: uploadData.mimetype });
-    formData.append('file', blob, uploadData.filename);
-    
-    const response = await fetch(`${this.config.apiUrl}/api/v0/add`, {
-      method: 'POST',
-      body: formData
-    });
-    
-    if (!response.ok) {
-      throw new Error(`IPFS upload failed: ${response.statusText}`);
+    try {
+      // Create FormData for IPFS API
+      const formData = new FormData();
+      const blob = new Blob([uploadData.buffer], { type: uploadData.mimetype });
+      formData.append('file', blob, uploadData.filename);
+      
+      const response = await fetch(`${this.config.apiUrl}/api/v0/add`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`IPFS upload failed: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      const cid = result.Hash;
+      const url = `${this.config.gatewayUrl}/ipfs/${cid}`;
+      
+      return {
+        success: true,
+        provider: 'ipfs',
+        cid,
+        url,
+        filename: uploadData.filename,
+        size: uploadData.size,
+        metadata: uploadData.metadata
+      };
+    } catch (error) {
+      throw new Error(`IPFS upload failed: ${error.message}`);
     }
-    
-    const result = await response.json();
-    const cid = result.Hash;
-    const url = `${this.config.gatewayUrl}/ipfs/${cid}`;
-    
-    return {
-      success: true,
-      provider: 'ipfs',
-      cid,
-      url,
-      filename: uploadData.filename,
-      size: uploadData.size,
-      metadata: uploadData.metadata
-    };
   }
 
   /**
@@ -258,16 +335,10 @@ class StorageService {
     }
     
     try {
-      // Check if package is available before importing
-      const packageName = 'web3.storage';
-      let Web3Storage;
-      
-      try {
-        const module = await import(packageName);
-        Web3Storage = module.Web3Storage;
-      } catch (importError) {
-        throw new Error(`Package '${packageName}' not installed. Run: npm install ${packageName}`);
-      }
+      // Dynamic import with error handling
+      const { Web3Storage } = await import('web3.storage').catch(() => {
+        throw new Error('web3.storage package not installed. Run: npm install web3.storage');
+      });
       
       this.config.client = new Web3Storage({ token: process.env.WEB3_STORAGE_TOKEN });
       console.log('✅ Web3.Storage client initialized');
@@ -278,6 +349,7 @@ class StorageService {
 
   async uploadToWeb3Storage(uploadData) {
     try {
+      // Web3.Storage expects File objects
       const file = new File([uploadData.buffer], uploadData.filename, {
         type: uploadData.mimetype
       });
@@ -312,57 +384,60 @@ class StorageService {
       apiUrl: 'https://api.pinata.cloud',
       gatewayUrl: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud'
     };
+    
+    console.log('✅ Pinata configured');
   }
 
   async uploadToPinata(uploadData) {
-    const formData = new FormData();
-    const blob = new Blob([uploadData.buffer], { type: uploadData.mimetype });
-    formData.append('file', blob, uploadData.filename);
-    
-    const metadata = JSON.stringify({
-      name: uploadData.filename,
-      keyvalues: uploadData.metadata
-    });
-    formData.append('pinataMetadata', metadata);
-    
-    const response = await fetch(`${this.config.apiUrl}/pinning/pinFileToIPFS`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.config.jwt}`
-      },
-      body: formData
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Pinata upload failed: ${response.statusText}`);
+    try {
+      const formData = new FormData();
+      const blob = new Blob([uploadData.buffer], { type: uploadData.mimetype });
+      formData.append('file', blob, uploadData.filename);
+      
+      const metadata = JSON.stringify({
+        name: uploadData.filename,
+        keyvalues: uploadData.metadata || {}
+      });
+      formData.append('pinataMetadata', metadata);
+      
+      const response = await fetch(`${this.config.apiUrl}/pinning/pinFileToIPFS`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.jwt}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pinata upload failed: ${response.statusText} - ${errorText}`);
+      }
+      
+      const result = await response.json();
+      const cid = result.IpfsHash;
+      const url = `${this.config.gatewayUrl}/ipfs/${cid}`;
+      
+      return {
+        success: true,
+        provider: 'pinata',
+        cid,
+        url,
+        filename: uploadData.filename,
+        size: uploadData.size,
+        metadata: uploadData.metadata
+      };
+    } catch (error) {
+      throw new Error(`Pinata upload failed: ${error.message}`);
     }
-    
-    const result = await response.json();
-    const cid = result.IpfsHash;
-    const url = `${this.config.gatewayUrl}/ipfs/${cid}`;
-    
-    return {
-      success: true,
-      provider: 'pinata',
-      cid,
-      url,
-      filename: uploadData.filename,
-      size: uploadData.size,
-      metadata: uploadData.metadata
-    };
   }
 
   // ===== UTILITY METHODS =====
 
-  extractBuffer(file) {
-    if (Buffer.isBuffer(file)) return file;
-    if (file.buffer) return file.buffer;
-    if (file.data) return file.data;
-    throw new Error('Cannot extract buffer from file');
-  }
-
   sanitizeFilename(filename) {
-    return filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    return filename
+      .replace(/[^a-zA-Z0-9.-]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .substring(0, 255);
   }
 
   getStatus() {
@@ -370,10 +445,14 @@ class StorageService {
       provider: this.provider,
       initialized: this.initialized,
       config: {
-        ...this.config,
+        uploadsDir: this.config.uploadsDir,
+        baseUrl: this.config.baseUrl,
+        apiUrl: this.config.apiUrl,
+        gatewayUrl: this.config.gatewayUrl,
         // Hide sensitive data
-        jwt: this.config.jwt ? '***hidden***' : undefined,
-        token: this.config.token ? '***hidden***' : undefined
+        jwt: this.config.jwt ? 'configured' : undefined,
+        token: this.config.token ? 'configured' : undefined,
+        client: this.config.client ? 'initialized' : undefined
       }
     };
   }
@@ -382,3 +461,5 @@ class StorageService {
 // Export singleton instance
 const storageService = new StorageService();
 export default storageService;
+
+console.log('✅ Storage service loaded');

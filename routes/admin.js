@@ -1,35 +1,172 @@
 import express from "express";
-import * as adminTrackController from "../controllers/adminController.js";
-import * as blockchainController from "../controllers/blockchainController.js";
-import { uploadMiddleware } from "../middleware/upload.js";
-import { adminAuth } from "../middleware/adminAuth.js";
+import { validateAdmin } from "../middleware/auth.js";
+import { uploadSingle } from "../middleware/upload.js";
+import * as adminController from "../controllers/adminController.js";
+import Track from "../models/Track.js";
 
 const router = express.Router();
 
-console.log("Setting up admin routes...");
+/**
+ * Admin API Routes
+ */
 
-// Apply admin authentication
-router.use(adminAuth);
+// Middleware to validate admin key for all admin routes
+router.use(validateAdmin);
 
-// Test route
-router.get("/test", (req, res) => {
-  res.json({ message: "Admin routes working" });
+// Admin info
+router.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Decentra Music Admin API",
+    version: "1.0.0",
+    admin: true,
+    endpoints: {
+      tracks: "/api/admin/tracks",
+      upload: "POST /api/admin/tracks (with file)",
+      status: "/api/admin/status",
+      stats: "/api/admin/stats",
+    },
+  });
 });
 
-// Admin track routes
-router.post("/tracks", uploadMiddleware, adminTrackController.uploadTrack);
-router.get("/tracks", adminTrackController.getAllTracksAdmin);
-router.put("/tracks/:id", adminTrackController.updateTrack);
-router.delete("/tracks/:id", adminTrackController.deleteTrack);
-router.get("/analytics", adminTrackController.getAnalytics);
+// Track management routes
+// IMPORTANT: Add upload middleware to the POST route
+router.post("/tracks", uploadSingle, adminController.uploadTrack);
+router.get("/tracks", adminController.getAllTracksAdmin);
+router.get("/tracks/:id", async (req, res) => {
+  try {
+    const track = await Track.findById(req.params.id).select("-__v");
 
-// Blockchain admin routes
-router.post('/tracks/:trackId/blockchain', blockchainController.addTrackToBlockchain);
-router.post('/blockchain/:contractId/purchase', blockchainController.purchaseTrack);
-router.get('/blockchain/:contractId/check', blockchainController.checkPurchase);
-router.post('/blockchain/withdraw', blockchainController.withdrawArtistBalance);
-router.get('/blockchain/status', blockchainController.getBlockchainStatus);
-router.get('/transactions/:txHash', blockchainController.getTransactionStatus);
+    if (!track) {
+      return res.status(404).json({
+        success: false,
+        error: "Track not found",
+      });
+    }
 
-console.log("Admin routes setup complete");
-export default router;
+    res.json({
+      success: true,
+      track,
+    });
+  } catch (error) {
+    console.error("❌ Get track error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch track",
+    });
+  }
+});
+router.put("/tracks/:id", adminController.updateTrack);
+router.delete("/tracks/:id", adminController.deleteTrack);
+
+// System status
+router.get("/status", async (req, res) => {
+  try {
+    const { getConnectionStatus } = await import("../config/database.js");
+    const dbStatus = getConnectionStatus();
+
+    // Get storage service status
+    let storageStatus = null;
+    try {
+      const storageService = await import("../services/StorageService.js");
+      storageStatus = await storageService.default.getStatus();
+    } catch (error) {
+      storageStatus = { error: error.message };
+    }
+
+    // Get blockchain status
+    let blockchainStatus = null;
+    try {
+      const blockchainModule = await import("../config/blockchain.js");
+      blockchainStatus = {
+        available: blockchainModule.isBlockchainAvailable
+          ? blockchainModule.isBlockchainAvailable()
+          : false,
+        enabled: process.env.BLOCKCHAIN_ENABLED !== "false",
+      };
+    } catch (error) {
+      blockchainStatus = { error: error.message };
+    }
+
+    res.json({
+      success: true,
+      status: "operational",
+      timestamp: new Date().toISOString(),
+      services: {
+        database: dbStatus,
+        storage: storageStatus,
+        blockchain: blockchainStatus,
+      },
+      system: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: process.env.npm_package_version || "1.0.0",
+        nodeVersion: process.version,
+        platform: process.platform,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Status check error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get system status",
+      details: error.message,
+    });
+  }
+});
+
+// System statistics
+router.get("/stats", async (req, res) => {
+  try {
+    const [
+      totalTracks,
+      activeTracks,
+      totalPlays,
+      totalDownloads,
+      recentTracks,
+    ] = await Promise.all([
+      Track.countDocuments(),
+      Track.countDocuments({ isActive: true }),
+      Track.aggregate([{ $group: { _id: null, total: { $sum: "$plays" } } }]),
+      Track.aggregate([{ $group: { _id: null, total: { $sum: "$downloads" } } }]),
+      Track.find({ isActive: true })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select("title artist createdAt plays downloads"),
+    ]);
+
+    const stats = {
+      tracks: {
+        total: totalTracks,
+        active: activeTracks,
+        inactive: totalTracks - activeTracks,
+      },
+      engagement: {
+        totalPlays: totalPlays[0]?.total || 0,
+        totalDownloads: totalDownloads[0]?.total || 0,
+        averagePlaysPerTrack:
+          activeTracks > 0
+            ? Math.round((totalPlays[0]?.total || 0) / activeTracks)
+            : 0,
+      },
+      recent: recentTracks,
+    };
+
+    res.json({
+      success: true,
+      stats,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Stats error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get statistics",
+    });
+  }
+});
+
+console.log("✅ Admin routes loaded");
+
+// Export the router
+export { router };
