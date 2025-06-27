@@ -127,6 +127,34 @@ const envSchema = joi
       .string()
       .valid("error", "warn", "info", "debug")
       .default("info"),
+
+    // JWT Configuration
+    JWT_SECRET: joi.string().min(64).required().messages({
+      "any.required": "JWT_SECRET is required for authentication",
+      "string.min": "JWT_SECRET must be at least 64 characters long",
+    }),
+
+    REFRESH_TOKEN_SECRET: joi.string().min(64).required().messages({
+      "any.required": "REFRESH_TOKEN_SECRET is required",
+      "string.min": "REFRESH_TOKEN_SECRET must be at least 64 characters long",
+    }),
+
+    JWT_EXPIRES_IN: joi
+      .string()
+      .pattern(/^\d+[smhd]$/)
+      .default("24h")
+      .messages({
+        "string.pattern.base":
+          "JWT_EXPIRES_IN must be a valid time string (e.g., 24h, 30m)",
+      }),
+
+    // Admin Authentication
+    ADMIN_USERNAME: joi.string().min(3).required(),
+    ADMIN_PASSWORD: joi.string().min(12).required().messages({
+      "string.min": "ADMIN_PASSWORD must be at least 12 characters long",
+    }),
+
+    // ... rest of your existing schema
   })
   .unknown(true); // Allow unknown environment variables
 
