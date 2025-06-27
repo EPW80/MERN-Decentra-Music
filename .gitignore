@@ -39,6 +39,8 @@ pnpm-lock.yaml
 # misc
 *.log
 *.tgz
+*.key
+*.pem
 
 # Optional: Ignore uploads or generated files
 uploads/

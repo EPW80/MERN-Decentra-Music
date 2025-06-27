@@ -5,6 +5,9 @@ import { connectDB } from './config/database.js';
 // Load environment variables first
 dotenv.config();
 
+// Fix EventEmitter memory leak warning
+process.setMaxListeners(15);
+
 const app = express();
 
 console.log('🚀 Starting server initialization...');
@@ -12,6 +15,10 @@ console.log('🚀 Starting server initialization...');
 // Basic middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
+console.log('📁 Static file serving enabled for /uploads');
 
 // Simple request logger
 app.use((req, res, next) => {
@@ -29,25 +36,25 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Load routes
-console.log('Loading public routes...');
+// Load consolidated API routes
+console.log('Loading API routes...');
 try {
-    const publicRoutes = await import('./routes/public.js');
-    app.use('/api', publicRoutes.router);
-    console.log('✅ Public routes loaded successfully');
+    const apiRoutes = await import('./routes/index.js');
+    app.use('/api', apiRoutes.router);
+    console.log('✅ All API routes loaded successfully');
 } catch (error) {
-    console.error('❌ Failed to load public routes:', error);
+    console.error('❌ Failed to load API routes:', error);
     process.exit(1);
 }
 
-console.log('Loading admin routes...');
+// Load authentication routes
+console.log('Loading authentication routes...');
 try {
-    const adminRoutes = await import('./routes/admin.js');
-    app.use('/api/admin', adminRoutes.router);
-    console.log('✅ Admin routes loaded successfully');
+    const authRoutes = await import('./routes/auth.js');
+    app.use('/auth', authRoutes.router);
+    console.log('✅ Authentication routes loaded at /auth');
 } catch (error) {
-    console.error('❌ Failed to load admin routes:', error);
-    process.exit(1);
+    console.error('❌ Failed to load authentication routes:', error);
 }
 
 console.log('✅ All routes loaded, starting MongoDB connection...');
@@ -62,39 +69,37 @@ try {
 }
 
 // Initialize services
-console.log('🔍 Loading blockchain services...');
-try {
-    const blockchainModule = await import('./config/blockchain.js');
-    console.log('✅ Blockchain module loaded');
-    
-    if (blockchainModule.isWalletAvailable && blockchainModule.isWalletAvailable()) {
-        const blockchainService = await import('./services/BlockchainService.js');
-        const result = await blockchainService.default.initialize();
-        
-        if (result.success) {
-            console.log('✅ Blockchain service ready');
-        } else {
-            console.log('⚠️ Blockchain service initialization failed:', result.error);
-        }
-    } else {
-        console.log('⚠️ Blockchain service disabled (wallet not available)');
-    }
-} catch (error) {
-    console.error('❌ Blockchain service failed:', error.message);
-    console.log('🔄 Server will continue without blockchain features');
-}
-
 console.log('🔍 Loading storage services...');
 try {
     const storageService = await import('./services/StorageService.js');
-    const status = await storageService.default.getStatus();
-    console.log('✅ Storage service ready:', status);
+    const initResult = await storageService.default.initialize();
+    
+    if (initResult.success) {
+        console.log('✅ Storage service ready:', initResult.provider);
+    } else {
+        throw new Error(`Storage initialization failed: ${initResult.error}`);
+    }
 } catch (error) {
-    console.error('❌ Storage service failed:', error);
+    console.error('❌ Storage service failed:', error.message);
     process.exit(1);
 }
 
-console.log('✅ All services initialized, setting up error handlers...');
+// Initialize blockchain service (optional)
+if (process.env.BLOCKCHAIN_ENABLED === 'true') {
+    console.log('🔍 Loading blockchain services...');
+    try {
+        const blockchainService = await import('./services/BlockchainService.js');
+        await blockchainService.default.initialize();
+        console.log('✅ Blockchain service loaded');
+    } catch (error) {
+        console.error('❌ Blockchain service failed:', error.message);
+        console.log('🔄 Server will continue without blockchain features');
+    }
+} else {
+    console.log('⚠️ Blockchain service disabled');
+}
+
+console.log('✅ All services initialized');
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -104,8 +109,7 @@ app.use((err, req, res, next) => {
     
     res.status(err.status || 500).json({
         success: false,
-        error: isDevelopment ? err.message : 'Internal server error',
-        ...(isDevelopment && { stack: err.stack })
+        error: isDevelopment ? err.message : 'Internal server error'
     });
 });
 
@@ -114,29 +118,36 @@ app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
         error: 'Endpoint not found',
-        path: req.originalUrl
+        path: req.originalUrl,
+        availableEndpoints: {
+            api: '/api',
+            tracks: '/api/tracks',
+            admin: '/api/admin',
+            blockchain: '/api/blockchain',
+            health: '/health'
+        }
     });
 });
 
 // Start server
-console.log('🔄 Starting HTTP server...');
 const PORT = process.env.PORT || 8000;
 
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📡 Public API: http://localhost:${PORT}/api`);
-    console.log(`🔐 Admin API: http://localhost:${PORT}/api/admin`);
-    console.log(`❤️ Health Check: http://localhost:${PORT}/health`);
+    console.log(`📡 API Base: http://localhost:${PORT}/api`);
+    console.log(`🎵 Tracks: http://localhost:${PORT}/api/tracks`);
+    console.log(`🔐 Admin: http://localhost:${PORT}/api/admin`);
+    console.log(`⛓️ Blockchain: http://localhost:${PORT}/api/blockchain`);
+    console.log(`📁 Files: http://localhost:${PORT}/uploads/`);
+    console.log(`❤️ Health: http://localhost:${PORT}/health`);
     console.log('✅ Server startup complete!');
 });
 
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('👋 SIGTERM received, shutting down gracefully');
+// Graceful shutdown
+const gracefulShutdown = () => {
+    console.log('👋 Shutting down gracefully...');
     process.exit(0);
-});
+};
 
-process.on('SIGINT', () => {
-    console.log('👋 SIGINT received, shutting down gracefully');
-    process.exit(0);
-});
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);

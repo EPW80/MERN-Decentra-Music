@@ -25,41 +25,63 @@ class StorageService {
     console.log(`🔄 Initializing storage: ${this.provider}`);
     
     try {
-      switch (this.provider) {
-        case 'local':
-          await this.initializeLocal();
-          break;
-        case 'ipfs':
-          await this.initializeIPFS();
-          break;
-        case 'web3storage':
-          await this.initializeWeb3Storage();
-          break;
-        case 'pinata':
-          await this.initializePinata();
-          break;
-        default:
-          throw new Error(`Unsupported storage provider: ${this.provider}`);
-      }
-      
-      this.initialized = true;
-      console.log(`✅ Storage initialized: ${this.provider}`);
-      
-    } catch (error) {
-      console.error(`❌ Storage initialization failed: ${error.message}`);
-      
-      // Fallback to local storage
-      if (this.provider !== 'local') {
-        console.log('🔄 Falling back to local storage...');
-        this.provider = 'local';
-        await this.initializeLocal();
+        switch (this.provider) {
+            case 'local':
+                await this.initializeLocal();
+                break;
+            case 'ipfs':
+                await this.initializeIPFS();
+                break;
+            case 'web3storage':
+                await this.initializeWeb3Storage();
+                break;
+            case 'pinata':
+                await this.initializePinata();
+                break;
+            default:
+                throw new Error(`Unsupported storage provider: ${this.provider}`);
+        }
+        
         this.initialized = true;
-      } else {
-        throw error;
-      }
+        console.log(`✅ Storage initialized: ${this.provider}`);
+        
+        // Return success status
+        return {
+            success: true,
+            provider: this.provider,
+            initialized: this.initialized,
+            config: this.getStatus()
+        };
+        
+    } catch (error) {
+        console.error(`❌ Storage initialization failed: ${error.message}`);
+        
+        // Fallback to local storage
+        if (this.provider !== 'local') {
+            console.log('🔄 Falling back to local storage...');
+            this.provider = 'local';
+            await this.initializeLocal();
+            this.initialized = true;
+            
+            return {
+                success: true,
+                provider: 'local',
+                initialized: true,
+                fallback: true,
+                originalError: error.message,
+                config: this.getStatus()
+            };
+        } else {
+            // If local storage fails, that's a critical error
+            this.initialized = false;
+            return {
+                success: false,
+                error: error.message,
+                provider: this.provider,
+                initialized: false
+            };
+        }
     }
-    
-    return this.getStatus();
   }
 
   /**

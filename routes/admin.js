@@ -166,6 +166,73 @@ router.get("/stats", async (req, res) => {
   }
 });
 
+// Blockchain management endpoints
+router.get('/blockchain/status', async (req, res) => {
+    try {
+        let blockchainService;
+        try {
+            blockchainService = await import('../services/BlockchainService.js');
+        } catch (error) {
+            return res.json({
+                success: true,
+                status: {
+                    available: false,
+                    enabled: false,
+                    error: 'Blockchain service not available'
+                }
+            });
+        }
+
+        const status = await blockchainService.default.getStatus();
+        res.json({
+            success: true,
+            status
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get blockchain status'
+        });
+    }
+});
+
+router.post('/blockchain/retry-failed-events', async (req, res) => {
+    try {
+        const blockchainService = await import('../services/BlockchainService.js');
+        await blockchainService.default.retryFailedEvents();
+        
+        res.json({
+            success: true,
+            message: 'Failed events retry initiated'
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to retry events'
+        });
+    }
+});
+
+router.delete('/blockchain/failed-events', async (req, res) => {
+    try {
+        const blockchainService = await import('../services/BlockchainService.js');
+        await blockchainService.default.clearFailedEvents();
+        
+        res.json({
+            success: true,
+            message: 'Failed events cleared'
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to clear events'
+        });
+    }
+});
+
 console.log("✅ Admin routes loaded");
 
 // Export the router
