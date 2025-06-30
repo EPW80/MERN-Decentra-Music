@@ -1,7 +1,12 @@
 import express from 'express';
 import Track from '../models/Track.js';
-import path from 'path';
-import fs from 'fs';
+import { 
+    validateTrackInput, 
+    validateSearchInput, 
+    validateObjectId,
+    validateFileUpload 
+} from '../middleware/sanitization.js';
+import { uploadSingle } from '../middleware/upload.js'; // Use the correct export name
 
 const router = express.Router();
 
@@ -11,8 +16,9 @@ const router = express.Router();
  */
 
 // Get all public tracks with filtering and pagination
-router.get('/', async (req, res) => {
+router.get('/', validateSearchInput, async (req, res) => {
     try {
+        // Input is already sanitized by middleware
         const {
             page = 1,
             limit = 20,
@@ -23,39 +29,36 @@ router.get('/', async (req, res) => {
             sortOrder = 'desc'
         } = req.query;
 
-        // Build query for public tracks only
+        // Build secure query
         const query = {
             isActive: true,
             isPublic: true
         };
 
-        // Apply filters
+        // Apply filters (inputs already validated)
         if (genre && genre !== 'all') {
             query.genre = genre.toLowerCase();
         }
 
         if (artist) {
-            query.artist = new RegExp(artist, 'i');
+            query.artist = new RegExp(artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); // Escape regex
         }
 
         if (search) {
+            const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             query.$or = [
-                { title: new RegExp(search, 'i') },
-                { artist: new RegExp(search, 'i') },
-                { album: new RegExp(search, 'i') }
+                { title: new RegExp(escapedSearch, 'i') },
+                { artist: new RegExp(escapedSearch, 'i') },
+                { album: new RegExp(escapedSearch, 'i') }
             ];
         }
 
-        // Build sort object
-        const sortObj = {};
-        sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-        // Execute query with pagination
+        // Execute query
         const tracks = await Track.find(query)
-            .sort(sortObj)
-            .limit(limit * 1)
-            .skip((page - 1) * limit)
-            .select('-__v -blockchain.error -purchases -royalties -withdrawals')
+            .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
+            .limit(parseInt(limit))
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .select('-__v -blockchain.error -purchases')
             .lean();
 
         const total = await Track.countDocuments(query);
@@ -67,68 +70,58 @@ router.get('/', async (req, res) => {
                 page: parseInt(page),
                 limit: parseInt(limit),
                 total,
-                pages: Math.ceil(total / limit),
-                hasNext: page * limit < total,
-                hasPrev: page > 1
+                pages: Math.ceil(total / parseInt(limit))
             },
-            filters: {
-                genre: genre || 'all',
-                artist: artist || null,
-                search: search || null
-            }
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
         console.error('❌ Get tracks error:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to fetch tracks'
+            error: 'Failed to fetch tracks',
+            timestamp: new Date().toISOString()
         });
     }
 });
 
-// Get single track by ID
-router.get('/:id', async (req, res) => {
+// Get single track by ID with ID validation
+router.get('/:id', validateObjectId, async (req, res) => {
     try {
         const track = await Track.findOne({
             _id: req.params.id,
             isActive: true,
             isPublic: true
         })
-        .select('-__v -blockchain.error -purchases -royalties -withdrawals')
+        .select('-__v -blockchain.error -purchases')
         .lean();
 
         if (!track) {
             return res.status(404).json({
                 success: false,
-                error: 'Track not found'
+                error: 'Track not found',
+                timestamp: new Date().toISOString()
             });
         }
 
         res.json({
             success: true,
-            track
+            track,
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
         console.error('❌ Get track error:', error);
-        
-        if (error.name === 'CastError') {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid track ID'
-            });
-        }
-        
         res.status(500).json({
             success: false,
-            error: 'Failed to fetch track'
+            error: 'Failed to fetch track',
+            timestamp: new Date().toISOString()
         });
     }
 });
 
 // Stream/download track
-router.get('/:id/stream', async (req, res) => {
+router.get('/:id/stream', validateObjectId, async (req, res) => {
     try {
         const track = await Track.findOne({
             _id: req.params.id,
@@ -139,11 +132,12 @@ router.get('/:id/stream', async (req, res) => {
         if (!track) {
             return res.status(404).json({
                 success: false,
-                error: 'Track not found'
+                error: 'Track not found',
+                timestamp: new Date().toISOString()
             });
         }
 
-        // Determine file path
+        // Determine file path based on storage system
         let filePath;
         
         if (track.storage?.filename) {
@@ -155,7 +149,8 @@ router.get('/:id/stream', async (req, res) => {
         } else {
             return res.status(404).json({
                 success: false,
-                error: 'File not available'
+                error: 'File not available',
+                timestamp: new Date().toISOString()
             });
         }
 
@@ -163,7 +158,8 @@ router.get('/:id/stream', async (req, res) => {
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({
                 success: false,
-                error: 'File not found on server'
+                error: 'File not found on server',
+                timestamp: new Date().toISOString()
             });
         }
 
@@ -175,11 +171,12 @@ router.get('/:id/stream', async (req, res) => {
         
         // Set headers for audio streaming
         res.set({
-            'Content-Type': track.mimeType || 'audio/mpeg',
+            'Content-Type': track.mimeType || track.storage?.mimeType || 'audio/mpeg',
             'Content-Length': stats.size,
             'Accept-Ranges': 'bytes',
             'Cache-Control': 'public, max-age=3600',
-            'Content-Disposition': `inline; filename="${track.title}.mp3"`
+            'Content-Disposition': `inline; filename="${track.title}.mp3"`,
+            'X-Content-Type-Options': 'nosniff'
         });
 
         // Handle range requests for audio seeking
@@ -208,7 +205,86 @@ router.get('/:id/stream', async (req, res) => {
         console.error('❌ Stream track error:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to stream track'
+            error: 'Failed to stream track',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+// Upload track with comprehensive validation
+router.post('/', 
+    uploadSingle,  // Use the correct export name
+    validateFileUpload, 
+    validateTrackInput, 
+    async (req, res) => {
+    try {
+        // All inputs are sanitized and validated
+        const trackData = {
+            title: req.body.title,
+            artist: req.body.artist,
+            album: req.body.album || '',
+            genre: req.body.genre,
+            description: req.body.description || '',
+            tags: req.body.tags ? (Array.isArray(req.body.tags) ? req.body.tags : [req.body.tags]) : [],
+            price: parseFloat(req.body.price) || 0,
+            isPublic: req.body.isPublic !== 'false'
+        };
+
+        // File info (already validated)
+        if (req.file) {
+            trackData.storage = {
+                filename: req.file.filename,
+                originalFilename: req.file.originalname,
+                size: req.file.size,
+                mimeType: req.file.mimetype
+            };
+            
+            // Set additional metadata
+            trackData.mimeType = req.file.mimetype;
+            trackData.fileSize = req.file.size;
+        }
+
+        const track = new Track(trackData);
+        await track.save();
+
+        console.log(`✅ Track uploaded: ${track.title} by ${track.artist}`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Track uploaded successfully',
+            track: {
+                id: track._id,
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                genre: track.genre,
+                fileSize: track.fileSize,
+                mimeType: track.mimeType,
+                createdAt: track.createdAt
+            },
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ Track upload error:', error);
+        
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                error: 'Validation failed',
+                details: Object.values(error.errors).map(err => ({
+                    field: err.path,
+                    message: err.message
+                })),
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            error: 'Failed to upload track',
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -324,6 +400,6 @@ router.get('/meta/artists', async (req, res) => {
     }
 });
 
-console.log('✅ Track routes loaded');
+console.log('✅ Secure tracks routes loaded');
 
 export { router };

@@ -1,7 +1,14 @@
 import express from "express";
 import dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { connectDB } from "./config/database.js";
 import { getConfig } from "./config/env.js";
+import {
+  sanitizeRequest,
+  mongoSanitizeMiddleware,
+  sanitizeResponse,
+} from "./middleware/sanitization.js";
 
 // Load environment variables first
 dotenv.config();
@@ -16,43 +23,153 @@ try {
 }
 
 // Fix EventEmitter memory leak warning
-process.setMaxListeners(20); // Increase from 15 to 20
+process.setMaxListeners(20);
 
 const app = express();
 
 console.log("🚀 Starting Decentra Music API Server...");
 console.log(`🌍 Environment: ${config.nodeEnv}`);
 
-// ===== MIDDLEWARE SETUP =====
+// ===== SECURITY MIDDLEWARE =====
 
-// Security middleware
+// Helmet for security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        mediaSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        connectSrc: ["'self'"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // Allow audio streaming
+  })
+);
+
+// Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs
+  message: {
+    success: false,
+    error: "Too many requests, please try again later",
+    retryAfter: "15 minutes",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 30, // Limit each IP to 30 requests per minute for sensitive endpoints
+  message: {
+    success: false,
+    error: "Rate limit exceeded for sensitive operations",
+    retryAfter: "1 minute",
+  },
+});
+
+app.use("/api", generalLimiter);
+app.use("/api/admin", strictLimiter);
+app.use("/auth", strictLimiter);
+
+// MongoDB injection protection
+app.use(mongoSanitizeMiddleware);
+
+// Custom security headers
 app.use((req, res, next) => {
   res.setHeader("X-Powered-By", "Decentra Music");
+  res.setHeader("API-Version", "v1");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("API-Version", "v1");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // CORS headers
+  const allowedOrigins =
+    config.allowedOrigins.length > 0
+      ? config.allowedOrigins
+      : ["http://localhost:3000"];
+
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-API-Key, X-Admin-Key"
+  );
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Max-Age", "86400"); // 24 hours
+
+  // Handle preflight requests
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   next();
 });
 
-// Body parsing middleware
-app.use(express.json({ limit: "10mb" }));
+// Body parsing middleware with size limits
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req, res, buf) => {
+      // Store raw body for webhook verification if needed
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Serve static files
-app.use("/uploads", express.static("uploads"));
+// Request sanitization (MUST be after body parsing)
+app.use(sanitizeRequest);
+
+// Response sanitization
+app.use(sanitizeResponse);
+
+// Serve static files with security headers
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    next();
+  },
+  express.static("uploads")
+);
+
+console.log("🛡️ Security middleware configured");
 console.log("📁 Static file serving enabled for /uploads");
 
-// Request logging
+// Request logging with security info
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   const userAgent = req.get("User-Agent") || "Unknown";
+  const xForwardedFor = req.get("X-Forwarded-For");
+  const realIp = xForwardedFor || req.ip;
+
+  // Log security-relevant information
+  const securityFlags = [];
+  if (req.get("X-Admin-Key")) securityFlags.push("ADMIN_KEY");
+  if (req.get("Authorization")) securityFlags.push("AUTH");
+  if (req.body && Object.keys(req.body).length > 0) securityFlags.push("BODY");
 
   console.log(
-    `📥 ${timestamp} | ${req.method} ${req.url} | ${req.ip} | ${userAgent.substring(
+    `📥 ${timestamp} | ${req.method} ${req.url} | ${realIp} | ${userAgent.substring(
       0,
       50
-    )}`
+    )} ${securityFlags.length > 0 ? `| ${securityFlags.join(",")}` : ""}`
   );
   next();
 });
