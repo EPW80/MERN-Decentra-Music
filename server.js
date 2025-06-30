@@ -104,7 +104,10 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-API-Key, X-Admin-Key"
@@ -166,10 +169,11 @@ app.use((req, res, next) => {
   if (req.body && Object.keys(req.body).length > 0) securityFlags.push("BODY");
 
   console.log(
-    `📥 ${timestamp} | ${req.method} ${req.url} | ${realIp} | ${userAgent.substring(
-      0,
-      50
-    )} ${securityFlags.length > 0 ? `| ${securityFlags.join(",")}` : ""}`
+    `📥 ${timestamp} | ${req.method} ${
+      req.url
+    } | ${realIp} | ${userAgent.substring(0, 50)} ${
+      securityFlags.length > 0 ? `| ${securityFlags.join(",")}` : ""
+    }`
   );
   next();
 });
@@ -372,7 +376,12 @@ const server = app.listen(config.port, () => {
   console.log(`│ 🌍 Environment: ${config.nodeEnv.padEnd(20)}│`);
   console.log(`│ 🔗 Database: Connected                      │`);
   console.log(`│ 📦 Storage: ${config.storage.provider.padEnd(22)}│`);
-  console.log(`│ ⛓️  Blockchain: ${(config.blockchain.enabled ? "Enabled" : "Disabled").padEnd(16)}│`);
+  console.log(
+    `│ ⛓️  Blockchain: ${(config.blockchain.enabled
+      ? "Enabled"
+      : "Disabled"
+    ).padEnd(16)}│`
+  );
   console.log("└─────────────────────────────────────────────┘");
 });
 
