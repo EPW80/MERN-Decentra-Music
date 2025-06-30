@@ -1,0 +1,24 @@
+{
+  "contractAddress": "0x4B5997e44be0b6fd8774B34f226e34938EbA0d90",
+  "network": {
+    "name": "sepolia",
+    "chainId": 11155111,
+    "rpcUrl": "https://sepolia.infura.io/v3/574fd0b6fe6e4c46bae3728f1b9019ea"
+  },
+  "deployment": {
+    "deployer": "0xe169e0E830607df3dFf5C3f402104b4BA2B66041",
+    "deployedAt": "2025-06-30T05:50:12.898Z",
+    "transactionHash": "0x39dcbd8f15e859bf6ec8f8aba0ead86a0aa960a8d0c31a25348f293d264fc8e4",
+    "deploymentTime": 9.191,
+    "gasUsed": "3000000"
+  },
+  "contract": {
+    "name": "MusicStore",
+    "version": "1.0.0",
+    "compiler": "0.8.20"
+  },
+  "links": {
+    "etherscan": "https://sepolia.etherscan.io/address/0x4B5997e44be0b6fd8774B34f226e34938EbA0d90",
+    "transaction": "https://sepolia.etherscan.io/tx/0x39dcbd8f15e859bf6ec8f8aba0ead86a0aa960a8d0c31a25348f293d264fc8e4"
+  }
+}

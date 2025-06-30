@@ -45,3 +45,12 @@ pnpm-lock.yaml
 # Optional: Ignore uploads or generated files
 uploads/
 public/uploads/
+
+# Hardhat
+cache/
+artifacts/
+typechain-types/
+coverage/
+coverage.json
+.env.local
+

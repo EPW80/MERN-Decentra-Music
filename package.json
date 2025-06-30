@@ -10,7 +10,29 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "clean": "rm -rf node_modules package-lock.json",
-    "fresh-install": "npm run clean && npm install"
+    "fresh-install": "npm run clean && npm install",
+    
+    "compile": "npx hardhat compile",
+    "deploy": "node scripts/deploy.js",
+    "deploy:local": "npx hardhat run scripts/deploy.js --network localhost",
+    "deploy:simple": "npx hardhat run scripts/deploy-simple.js --network localhost",
+    "deploy:sepolia": "npx hardhat run scripts/deploy-sepolia.js --network sepolia",
+    "deploy:testnet": "npx hardhat run scripts/deploy.js --network sepolia",
+    "deploy:mainnet": "npx hardhat run scripts/deploy.js --network mainnet",
+    "compile-and-deploy": "npm run compile && npm run deploy",
+    
+    "test": "npx hardhat test",
+    "test:coverage": "npx hardhat coverage",
+    "test:gas": "REPORT_GAS=true npx hardhat test",
+    
+    "node:start": "npx hardhat node",
+    "console": "npx hardhat console",
+    "console:sepolia": "npx hardhat console --network sepolia",
+    "verify": "npx hardhat verify",
+    "verify:sepolia": "npx hardhat verify --network sepolia",
+    
+    "clean:hardhat": "npx hardhat clean",
+    "size": "npx hardhat size-contracts"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.3.0",
@@ -36,6 +58,22 @@
     "xss-clean": "^0.1.4"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.9",
+    "@nomicfoundation/hardhat-ethers": "^3.0.9",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.13",
+    "@nomicfoundation/hardhat-toolbox": "^6.0.0",
+    "@nomiclabs/hardhat-etherscan": "^3.1.8",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/chai": "^4.3.20",
+    "@types/mocha": "^10.0.10",
+    "chai": "^4.5.0",
+    "hardhat": "^2.25.0",
+    "hardhat-gas-reporter": "^2.3.0",
+    "mocha": "^11.7.1",
+    "nodemon": "^3.0.2",
+    "solidity-coverage": "^0.8.16",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
