@@ -160,7 +160,7 @@ class BlockchainService extends EventEmitter {
         console.log("🎵 TrackAdded event:", {
           trackId: trackId.toString(),
           artist,
-          price: ethers.utils.formatEther(price),
+          price: ethers.formatEther(price),
           txHash: event.transactionHash,
         });
 
@@ -183,7 +183,7 @@ class BlockchainService extends EventEmitter {
           console.log("💰 TrackPurchased event:", {
             trackId: trackId.toString(),
             buyer,
-            price: ethers.utils.formatEther(price),
+            price: ethers.formatEther(price),
             txHash: event.transactionHash,
           });
 
@@ -212,13 +212,10 @@ class BlockchainService extends EventEmitter {
         await this.handleProviderError(error);
       });
 
-      // Contract error handler
-      this.contract.on("error", async (error) => {
-        console.error("❌ Smart contract error:", error);
-        this.emit("contractError", error);
-        await this.handleContractError(error);
-      });
-
+      // Note: Contract error events are handled by provider error listener
+      // No need for separate contract error listener as "error" is not a contract event
+      // All contract events are properly defined and handled above
+      
       this.isListening = true;
       console.log("✅ Event listeners setup complete with error handling");
     } catch (error) {
@@ -269,7 +266,7 @@ class BlockchainService extends EventEmitter {
         txHash: event.transactionHash,
         blockNumber: event.blockNumber,
         addedAt: new Date(),
-        price: ethers.utils.formatEther(price),
+        price: ethers.formatEther(price),
         status: "confirmed",
       };
 
@@ -299,60 +296,50 @@ class BlockchainService extends EventEmitter {
   }
 
   // Enhanced TrackPurchased processing with retry logic
-  async processTrackPurchasedWithRetry(trackId, buyer, price, event) {
-    return await this.withRetry(
-      "processTrackPurchased",
-      async () => {
-        return await this.processTrackPurchased(trackId, buyer, price, event);
-      },
-      { trackId, buyer, price, event }
-    );
-  }
-
-  async processTrackPurchased(trackId, buyer, price, event) {
-    if (!this.enabled) return;
-
-    console.log(`🔄 Processing TrackPurchased: ${trackId}`);
-
-    const track = await Track.findOne({
-      "blockchain.contractId": trackId.toString(),
-    });
-
-    if (track) {
-      // Update track stats
-      track.downloads += 1;
-      track.totalEarnings =
-        (parseFloat(track.totalEarnings) || 0) +
-        parseFloat(ethers.utils.formatEther(price));
-
-      // Add purchase record
-      if (!track.purchases) track.purchases = [];
-      track.purchases.push({
+  async processTrackPurchasedWithRetry(trackId, buyer, price, event, attempt = 1) {
+    try {
+      console.log(`🎵 Processing TrackPurchased event (attempt ${attempt}):`, {
+        trackId: trackId.toString(),
         buyer,
-        price: ethers.utils.formatEther(price),
+        price: ethers.formatEther(price),
         txHash: event.transactionHash,
+      });
+
+      // Sync purchase to database
+      const { syncPurchaseFromEvent } = await import('../controllers/purchaseController.js');
+      
+      const eventData = {
+        transactionHash: event.transactionHash,
         blockNumber: event.blockNumber,
-        timestamp: new Date(),
-      });
+        blockHash: event.blockHash,
+        trackId: trackId.toString(),
+        buyer: buyer,
+        artist: event.args?.artist || null,
+        price: ethers.formatEther(price),
+        platformFee: event.args?.platformFee ? ethers.formatEther(event.args.platformFee) : null,
+        artistPayment: event.args?.artistPayment ? ethers.formatEther(event.args.artistPayment) : null,
+        timestamp: event.timestamp || Date.now() / 1000,
+      };
 
-      await track.save();
+      const purchase = await syncPurchaseFromEvent(eventData);
+      console.log(`✅ Purchase synced to database: ${purchase.id}`);
 
-      console.log(`✅ Purchase processed: ${track.title} bought by ${buyer}`);
+      return { success: true, purchase };
 
-      this.emit("trackPurchased", {
-        track,
-        buyer,
-        price: ethers.utils.formatEther(price),
-        txHash: event.transactionHash,
-      });
+    } catch (error) {
+      console.error(`❌ Failed to process TrackPurchased event (attempt ${attempt}):`, error);
+      
+      if (attempt < this.maxRetries) {
+        const delay = this.retryDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        console.log(`🔄 Retrying in ${delay}ms...`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.processTrackPurchasedWithRetry(trackId, buyer, price, event, attempt + 1);
+      }
 
-      // Grant access to buyer
-      await this.grantAccess(trackId.toString(), buyer, track);
-
-      return { success: true, track, buyer };
-    } else {
-      console.warn(`⚠️ Track not found for contract ID: ${trackId}`);
-      throw new Error(`Track not found for contract ID: ${trackId}`);
+      // Store failed event for manual retry
+      await this.storeFailedEvent("TrackPurchased", { trackId, buyer, price, event }, error);
+      throw error;
     }
   }
 
@@ -547,16 +534,210 @@ class BlockchainService extends EventEmitter {
     console.log("📝 Contract error logged:", errorLog);
   }
 
-  // Grant access method (placeholder)
-  async grantAccess(trackId, buyer, track) {
-    // Implement access granting logic here
-    console.log(`🔐 Granting access to track ${trackId} for buyer ${buyer}`);
+  /**
+   * Purchase Verification Methods
+   */
 
-    // This could involve:
-    // - Creating download tokens
-    // - Adding buyer to access list
-    // - Sending confirmation emails
-    // - etc.
+  // Verify a purchase transaction
+  async verifyPurchaseTransaction(txHash, buyerAddress) {
+    try {
+      if (!this.provider || !this.contract) {
+        throw new Error("Blockchain service not initialized");
+      }
+
+      console.log(`🔍 Verifying transaction: ${txHash} for buyer: ${buyerAddress}`);
+
+      // Get transaction receipt
+      const receipt = await this.provider.getTransactionReceipt(txHash);
+      if (!receipt) {
+        return {
+          success: false,
+          error: "Transaction not found or not confirmed",
+        };
+      }
+
+      if (receipt.status !== 1) {
+        return {
+          success: false,
+          error: "Transaction failed",
+        };
+      }
+
+      // Parse transaction logs for TrackPurchased events
+      const purchaseEvents = receipt.logs
+        .map(log => {
+          try {
+            return this.contract.interface.parseLog(log);
+          } catch (error) {
+            return null;
+          }
+        })
+        .filter(log => log && log.name === 'TrackPurchased');
+
+      if (purchaseEvents.length === 0) {
+        return {
+          success: false,
+          error: "No TrackPurchased event found in transaction",
+        };
+      }
+
+      // Find the event that matches the buyer address
+      const matchingEvent = purchaseEvents.find(event => 
+        event.args.buyer.toLowerCase() === buyerAddress.toLowerCase()
+      );
+
+      if (!matchingEvent) {
+        return {
+          success: false,
+          error: "Transaction not made by specified buyer address",
+        };
+      }
+
+      // Get current block for confirmations
+      const currentBlock = await this.provider.getBlockNumber();
+      const confirmations = currentBlock - receipt.blockNumber;
+
+      // Extract event data
+      const eventArgs = matchingEvent.args;
+      const block = await this.provider.getBlock(receipt.blockNumber);
+
+      return {
+        success: true,
+        data: {
+          txHash: txHash,
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+          trackId: eventArgs.trackId.toString(),
+          buyer: eventArgs.buyer,
+          artistAddress: eventArgs.artist || null,
+          amount: ethers.formatEther(eventArgs.price),
+          platformFee: eventArgs.platformFee ? ethers.formatEther(eventArgs.platformFee) : null,
+          artistPayment: eventArgs.artistPayment ? ethers.formatEther(eventArgs.artistPayment) : null,
+          confirmations: confirmations,
+          timestamp: block.timestamp,
+          eventData: {
+            name: matchingEvent.name,
+            args: Object.fromEntries(
+              Object.entries(eventArgs).map(([key, value]) => [
+                key,
+                typeof value === 'bigint' ? value.toString() : value
+              ])
+            ),
+          },
+        },
+      };
+
+    } catch (error) {
+      console.error("❌ Purchase verification error:", error);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  // Check if user has purchased a track
+  async hasPurchased(userAddress, trackId) {
+    try {
+      if (!this.contract) {
+        throw new Error("Contract not available");
+      }
+
+      console.log(`🔍 Checking purchase: user ${userAddress}, track ${trackId}`);
+
+      // Call contract method to check purchase status
+      const hasPurchased = await this.contract.hasPurchased(userAddress, trackId);
+      return hasPurchased;
+
+    } catch (error) {
+      console.error("❌ Has purchased check error:", error);
+      throw error;
+    }
+  }
+
+  // Get purchase events for a specific user or track
+  async getPurchaseEvents(fromBlock = 0, userAddress = null, trackId = null) {
+    try {
+      if (!this.contract) {
+        throw new Error("Contract not available");
+      }
+
+      console.log(`📊 Getting purchase events from block ${fromBlock}`);
+
+      // Set up filter
+      const filter = this.contract.filters.TrackPurchased(
+        trackId || null,  // trackId filter
+        userAddress || null,  // buyer filter
+        null  // price (no filter)
+      );
+
+      // Get events
+      const events = await this.contract.queryFilter(filter, fromBlock);
+
+      return events.map(event => {
+        const args = event.args;
+        return {
+          transactionHash: event.transactionHash,
+          blockNumber: event.blockNumber,
+          blockHash: event.blockHash,
+          trackId: args.trackId.toString(),
+          buyer: args.buyer,
+          artist: args.artist || null,
+          price: ethers.formatEther(args.price),
+          platformFee: args.platformFee ? ethers.formatEther(args.platformFee) : null,
+          artistPayment: args.artistPayment ? ethers.formatEther(args.artistPayment) : null,
+          timestamp: event.timestamp || null,
+          eventIndex: event.logIndex,
+        };
+      });
+
+    } catch (error) {
+      console.error("❌ Get purchase events error:", error);
+      throw error;
+    }
+  }
+
+  // Calculate purchase details (price breakdown)
+  async calculatePurchaseDetails(trackId) {
+    try {
+      if (!this.contract) {
+        throw new Error("Contract not available");
+      }
+
+      // Get track info from contract
+      const trackInfo = await this.contract.tracks(trackId);
+      
+      if (!trackInfo || trackInfo.artist === ethers.ZeroAddress) {
+        throw new Error("Track not found on blockchain");
+      }
+
+      const price = ethers.formatEther(trackInfo.price);
+      
+      // Get platform fee percentage (assuming it's stored in contract)
+      let platformFeePercent = 5; // Default 5%
+      try {
+        platformFeePercent = await this.contract.platformFeePercent();
+      } catch (error) {
+        console.warn("Could not get platform fee from contract, using default 5%");
+      }
+
+      const platformFee = (parseFloat(price) * platformFeePercent) / 100;
+      const artistPayment = parseFloat(price) - platformFee;
+
+      return {
+        trackId: trackId,
+        price: price,
+        platformFeePercent: platformFeePercent,
+        platformFee: platformFee.toString(),
+        artistPayment: artistPayment.toString(),
+        artist: trackInfo.artist,
+        isActive: trackInfo.isActive || true,
+      };
+
+    } catch (error) {
+      console.error("❌ Calculate purchase details error:", error);
+      throw error;
+    }
   }
 
   async getStatus() {
@@ -653,7 +834,6 @@ class BlockchainService extends EventEmitter {
   }
 }
 
-const blockchainService = new BlockchainService();
-export default blockchainService;
+export default BlockchainService;
 
 console.log("✅ Enhanced Blockchain service loaded with error recovery");

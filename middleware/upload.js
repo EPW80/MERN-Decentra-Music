@@ -191,10 +191,6 @@ export const uploadSingle = (req, res, next) => {
   });
 };
 
-// Export additional middleware options
-export const uploadMiddleware = uploadSingle; // Alternative export name for compatibility
-export const fileUpload = uploadSingle; // Another alternative
-
 // Export multer instance for custom configurations
 export { upload };
 

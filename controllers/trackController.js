@@ -1,4 +1,4 @@
-import Track from '../models/Track.js';
+import TrackService from "../services/TrackService.js";
 
 /**
  * Public Track Operations
@@ -8,238 +8,229 @@ import Track from '../models/Track.js';
  * - Stream track (with access control)
  */
 
+const trackService = new TrackService();
+
 // Get all tracks with filtering
 export const getAllTracks = async (req, res) => {
-    try {
-        const { 
-            genre, 
-            artist, 
-            search, 
-            sort = 'newest',
-            page = 1, 
-            limit = 20 
-        } = req.query;
+  try {
+    const {
+      genre,
+      artist,
+      search,
+      sort = "newest",
+      page = 1,
+      limit = 20,
+    } = req.query;
 
-        // Build filter
-        const filter = { 
-            isActive: true, 
-            isPublic: true 
-        };
+    // Use TrackService for handling the query
+    if (search) {
+      // Handle search query
+      const tracks = await trackService.searchTracks(search, {
+        limit: parseInt(limit),
+        includeInactive: false,
+        includePrivate: false,
+      });
 
-        if (genre && genre !== 'all') {
-            filter.genre = genre;
-        }
-
-        if (artist) {
-            filter.artist = { $regex: artist, $options: 'i' };
-        }
-
-        if (search) {
-            filter.$or = [
-                { title: { $regex: search, $options: 'i' } },
-                { artist: { $regex: search, $options: 'i' } },
-                { album: { $regex: search, $options: 'i' } }
-            ];
-        }
-
-        // Build sort
-        let sortOption = {};
-        switch (sort) {
-            case 'newest':
-                sortOption = { createdAt: -1 };
-                break;
-            case 'oldest':
-                sortOption = { createdAt: 1 };
-                break;
-            case 'popular':
-                sortOption = { plays: -1, likes: -1 };
-                break;
-            case 'title':
-                sortOption = { title: 1 };
-                break;
-            case 'artist':
-                sortOption = { artist: 1 };
-                break;
-            default:
-                sortOption = { createdAt: -1 };
-        }
-
-        // Execute query with pagination
-        const skip = (page - 1) * limit;
-        const [tracks, total] = await Promise.all([
-            Track.find(filter)
-                .sort(sortOption)
-                .skip(skip)
-                .limit(parseInt(limit))
-                .select('-__v'),
-            Track.countDocuments(filter)
-        ]);
-
-        // Calculate pagination info
-        const totalPages = Math.ceil(total / limit);
-        const hasNext = page < totalPages;
-        const hasPrev = page > 1;
-
-        res.json({
-            success: true,
-            tracks,
-            count: tracks.length,
-            pagination: {
-                current: parseInt(page),
-                pages: totalPages,
-                total,
-                hasNext,
-                hasPrev
-            },
-            filters: {
-                genre: genre || null,
-                artist: artist || null,
-                search: search || null,
-                sort
-            }
-        });
-
-    } catch (error) {
-        console.error('Get tracks error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to fetch tracks' 
-        });
+      return res.json({
+        success: true,
+        data: tracks,
+        pagination: {
+          page: 1,
+          limit: parseInt(limit),
+          total: tracks.length,
+          pages: 1,
+          hasNext: false,
+          hasPrev: false,
+        },
+      });
     }
+
+    // Build filters
+    const filters = {};
+
+    if (genre && genre !== "all") {
+      filters.genre = genre;
+    }
+
+    if (artist) {
+      filters.artist = { $regex: artist, $options: "i" };
+    }
+
+    // Map sort options
+    let sortBy = "createdAt";
+    let sortOrder = "desc";
+
+    switch (sort) {
+      case "newest":
+        sortBy = "createdAt";
+        sortOrder = "desc";
+        break;
+      case "oldest":
+        sortBy = "createdAt";
+        sortOrder = "asc";
+        break;
+      case "popular":
+        sortBy = "plays";
+        sortOrder = "desc";
+        break;
+      case "title":
+        sortBy = "title";
+        sortOrder = "asc";
+        break;
+      case "artist":
+        sortBy = "artist";
+        sortOrder = "asc";
+        break;
+      default:
+        sortBy = "createdAt";
+        sortOrder = "desc";
+    }
+
+    // Use TrackService for pagination and filtering
+    const result = await trackService.getTracks(filters, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      sortBy,
+      sortOrder,
+      includeInactive: false,
+      includePrivate: false,
+    });
+
+    res.json({
+      success: true,
+      data: result.tracks,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    console.error("Get tracks error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve tracks",
+      error: error.message,
+    });
+  }
 };
 
 // Get single track details
 export const getTrackDetails = async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const track = await Track.findById(id)
-            .select('-__v');
+  try {
+    const { id } = req.params;
 
-        if (!track || !track.isActive || !track.isPublic) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Track not found' 
-            });
-        }
+    const track = await trackService.getTrackById(id, {
+      includeInactive: false,
+      includePrivate: false,
+    });
 
-        res.json({
-            success: true,
-            track
-        });
-
-    } catch (error) {
-        console.error('Get track details error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to fetch track details' 
-        });
+    res.json({
+      success: true,
+      data: track,
+    });
+  } catch (error) {
+    console.error("Get track details error:", error);
+    if (error.message === "Track not found") {
+      res.status(404).json({
+        success: false,
+        message: "Track not found",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: "Failed to retrieve track details",
+        error: error.message,
+      });
     }
+  }
 };
 
 // Search tracks
 export const searchTracks = async (req, res) => {
-    try {
-        const { q, limit = 10 } = req.query;
+  try {
+    const { q, limit = 10 } = req.query;
 
-        if (!q || q.trim().length < 2) {
-            return res.status(400).json({
-                success: false,
-                error: 'Search query must be at least 2 characters'
-            });
-        }
-
-        const searchRegex = { $regex: q.trim(), $options: 'i' };
-        
-        const tracks = await Track.find({
-            isActive: true,
-            isPublic: true,
-            $or: [
-                { title: searchRegex },
-                { artist: searchRegex },
-                { album: searchRegex },
-                { genre: searchRegex }
-            ]
-        })
-        .limit(parseInt(limit))
-        .sort({ plays: -1, createdAt: -1 })
-        .select('-__v');
-
-        res.json({
-            success: true,
-            tracks,
-            count: tracks.length,
-            query: q
-        });
-
-    } catch (error) {
-        console.error('Search tracks error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Search failed' 
-        });
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query must be at least 2 characters",
+      });
     }
+
+    const tracks = await trackService.searchTracks(q.trim(), {
+      limit: parseInt(limit),
+      includeInactive: false,
+      includePrivate: false,
+    });
+
+    res.json({
+      success: true,
+      data: tracks,
+      count: tracks.length,
+      query: q,
+    });
+  } catch (error) {
+    console.error("Search tracks error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Search failed",
+      error: error.message,
+    });
+  }
 };
 
 // Get track by blockchain ID (for blockchain integration)
 export const getTrackByBlockchainId = async (req, res) => {
-    try {
-        const { blockchainId } = req.params;
-        
-        const track = await Track.findOne({ 
-            'blockchain.contractId': blockchainId,
-            isActive: true 
-        });
+  try {
+    const { blockchainId } = req.params;
 
-        if (!track) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Track not found on blockchain' 
-            });
-        }
+    const result = await trackService.getTracks(
+      { "blockchain.contractId": blockchainId },
+      { limit: 1, includeInactive: false, includePrivate: false }
+    );
 
-        res.json({
-            success: true,
-            track
-        });
-
-    } catch (error) {
-        console.error('Get blockchain track error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to fetch blockchain track' 
-        });
+    if (!result.tracks || result.tracks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Track not found",
+      });
     }
+
+    res.json({
+      success: true,
+      data: result.tracks[0],
+    });
+  } catch (error) {
+    console.error("Get track by blockchain ID error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve track",
+      error: error.message,
+    });
+  }
 };
 
 // Increment play count
 export const incrementPlayCount = async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const track = await Track.findByIdAndUpdate(
-            id,
-            { $inc: { plays: 1 } },
-            { new: true }
-        );
+  try {
+    const { id } = req.params;
 
-        if (!track) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Track not found' 
-            });
-        }
+    const track = await trackService.incrementPlays(id);
 
-        res.json({
-            success: true,
-            plays: track.plays
-        });
-
-    } catch (error) {
-        console.error('Increment play count error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to update play count' 
-        });
+    res.json({
+      success: true,
+      data: track,
+    });
+  } catch (error) {
+    console.error("Increment play count error:", error);
+    if (error.message === "Track not found") {
+      res.status(404).json({
+        success: false,
+        message: "Track not found",
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: "Failed to increment play count",
+        error: error.message,
+      });
     }
+  }
 };

@@ -7,54 +7,64 @@ import express from "express";
 
 const router = express.Router();
 
-// API Information
-router.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "Decentra Music API",
-    version: "1.0.0",
-    endpoints: {
-      tracks: "/api/tracks",
-      admin: "/api/admin",
-      blockchain: "/api/blockchain",
-      health: "/health",
-    },
-    documentation: "https://github.com/epw80/decentra-music-backend",
-    timestamp: new Date().toISOString(),
-  });
-});
+// Import route modules (with error handling)
+let tracksRoutes, purchasesRoutes, artistsRoutes, blockchainRoutes;
 
-// Load and mount route modules
-async function setupRoutes() {
-  try {
-    // Public track routes
-    const trackRoutes = await import("./tracks.js");
-    router.use("/tracks", trackRoutes.router);
-    console.log("✅ Track routes mounted at /api/tracks");
-
-    // Admin routes
-    const adminRoutes = await import("./admin.js");
-    router.use("/admin", adminRoutes.router);
-    console.log("✅ Admin routes mounted at /api/admin");
-
-    // Blockchain routes (if enabled)
-    if (process.env.BLOCKCHAIN_ENABLED === "true") {
-      try {
-        const blockchainRoutes = await import("./blockchain.js");
-        router.use("/blockchain", blockchainRoutes.router);
-        console.log("✅ Blockchain routes mounted at /api/blockchain");
-      } catch (error) {
-        console.log("⚠️ Blockchain routes not available:", error.message);
-      }
-    }
-  } catch (error) {
-    console.error("❌ Error setting up routes:", error);
-    throw error;
-  }
+try {
+    tracksRoutes = (await import('./api/tracks.js')).default;
+    router.use('/tracks', tracksRoutes);
+    console.log('✅ Tracks routes loaded');
+} catch (error) {
+    console.error('❌ Failed to load tracks routes:', error.message);
 }
 
-// Initialize routes
-await setupRoutes();
+try {
+    purchasesRoutes = (await import('./api/purchases.js')).default;
+    router.use('/purchases', purchasesRoutes);
+    console.log('✅ Purchases routes loaded');
+} catch (error) {
+    console.warn('⚠️ Purchases routes not available:', error.message);
+    // Create fallback purchase routes
+    router.get('/purchases/health', (req, res) => {
+        res.json({ success: false, error: 'Purchase service not available' });
+    });
+}
+
+try {
+    artistsRoutes = (await import('./api/artists.js')).default;
+} catch (error) {
+    console.warn('⚠️ Artists routes not available:', error.message);
+}
+
+try {
+    blockchainRoutes = (await import('./api/blockchain.js')).default;
+    router.use('/blockchain', blockchainRoutes);
+    console.log('✅ Blockchain routes loaded');
+} catch (error) {
+    console.error('❌ Failed to load blockchain routes:', error.message);
+}
+
+// API Information
+router.get("/", (req, res) => {
+    const availableEndpoints = {};
+    
+    if (tracksRoutes) availableEndpoints.tracks = '/api/tracks';
+    if (purchasesRoutes) availableEndpoints.purchases = '/api/purchases';
+    if (artistsRoutes) availableEndpoints.artists = '/api/artists';
+    if (blockchainRoutes) availableEndpoints.blockchain = '/api/blockchain';
+    
+    res.json({
+        success: true,
+        message: 'Decentra Music API v1',
+        version: '1.0.0',
+        endpoints: {
+            tracks: '/api/tracks',
+            blockchain: '/api/blockchain',
+            test: '/api/blockchain/test'
+        },
+        timestamp: new Date().toISOString()
+    });
+});
 
 export { router };
 

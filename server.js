@@ -210,30 +210,16 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ===== LOAD EXISTING ROUTES =====
+// ===== LOAD ROUTES =====
 
 console.log("Loading API routes...");
 try {
-  // Try to load v1 routes first
-  let apiRoutes;
-  try {
-    const v1Routes = await import("./routes/v1/index.js");
-    app.use("/api/v1", v1Routes.router);
-    console.log("✅ API v1 routes loaded at /api/v1");
-
-    // Also mount at /api for current compatibility
-    app.use("/api", v1Routes.router);
-    console.log("✅ API v1 routes also mounted at /api");
-  } catch (v1Error) {
-    console.log("⚠️ V1 routes not found, falling back to existing routes...");
-
-    // Fallback to existing route structure
-    const legacyRoutes = await import("./routes/index.js");
-    app.use("/api", legacyRoutes.router);
-    console.log("✅ Legacy API routes loaded at /api");
-  }
+  // Load main API routes
+  const apiRoutes = await import("./routes/index.js");
+  app.use("/api", apiRoutes.router);
+  console.log("✅ API routes loaded at /api");
 } catch (error) {
-  console.error("❌ Failed to load any API routes:", error);
+  console.error("❌ Failed to load API routes:", error.message);
   process.exit(1);
 }
 
@@ -241,16 +227,6 @@ try {
 
 console.log("Loading authentication routes...");
 try {
-  // Try v1 auth first, then fallback
-  try {
-    const authV1Routes = await import("./routes/auth/v1.js");
-    app.use("/auth/v1", authV1Routes.router);
-    console.log("✅ Auth v1 routes loaded at /auth/v1");
-  } catch (authV1Error) {
-    console.log("⚠️ Auth v1 routes not found, trying legacy auth...");
-  }
-
-  // Load legacy auth routes
   const authRoutes = await import("./routes/auth.js");
   app.use("/auth", authRoutes.router);
   console.log("✅ Auth routes loaded at /auth");
@@ -300,8 +276,9 @@ try {
 if (config.blockchain.enabled) {
   console.log("🔍 Loading blockchain services...");
   try {
-    const blockchainService = await import("./services/BlockchainService.js");
-    const initResult = await blockchainService.default.initialize();
+    const BlockchainService = await import("./services/BlockchainService.js");
+    const blockchainServiceInstance = new BlockchainService.default();
+    const initResult = await blockchainServiceInstance.initialize();
 
     if (initResult && initResult.success) {
       console.log("✅ Blockchain service loaded");

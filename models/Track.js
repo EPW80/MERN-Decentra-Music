@@ -15,6 +15,18 @@ const TrackSchema = new mongoose.Schema(
       trim: true,
       maxLength: 100,
     },
+    artistAddress: {
+      type: String,
+      validate: {
+        validator: function(v) {
+          if (!v) return true; // Allow empty/null for backward compatibility
+          // Basic Ethereum address validation
+          return /^0x[a-fA-F0-9]{40}$/.test(v);
+        },
+        message: 'artistAddress must be a valid Ethereum address'
+      },
+      index: true, // Add index for faster queries
+    },
     genre: {
       type: String,
       default: "other",
@@ -106,7 +118,18 @@ const TrackSchema = new mongoose.Schema(
         sparse: true, // Allow multiple null values
       },
       owner: String,
-      artist: String,
+      artist: String, // Legacy field for artist name
+      artistAddress: {
+        type: String,
+        validate: {
+          validator: function(v) {
+            if (!v) return true; // Allow empty/null
+            // Basic Ethereum address validation
+            return /^0x[a-fA-F0-9]{40}$/.test(v);
+          },
+          message: 'artistAddress must be a valid Ethereum address'
+        }
+      },
       txHash: String,
       blockNumber: Number,
       addedAt: Date,
@@ -196,16 +219,19 @@ const TrackSchema = new mongoose.Schema(
 
 // ===== INDEXES =====
 
-// Basic search indexes
+// Text search index for full-text search
 TrackSchema.index({ title: "text", artist: "text", album: "text" });
+
+// Compound indexes for common queries
 TrackSchema.index({ title: 1, artist: 1 });
-TrackSchema.index({ genre: 1 });
-TrackSchema.index({ artist: 1 });
 TrackSchema.index({ isActive: 1, isPublic: 1 });
+TrackSchema.index({ genre: 1, isActive: 1 }); // Optimized for genre filtering with active status
+
+// Performance indexes for sorting and filtering
 TrackSchema.index({ createdAt: -1 });
 TrackSchema.index({ plays: -1 });
 
-// Blockchain indexes (sparse to allow multiple null values)
+// Blockchain indexes - single sparse unique index as recommended
 TrackSchema.index(
   { "blockchain.contractId": 1 },
   {
@@ -215,9 +241,11 @@ TrackSchema.index(
   }
 );
 
-// Performance indexes
-TrackSchema.index({ "storage.provider": 1 });
+// Additional blockchain status index for filtering
 TrackSchema.index({ "blockchain.status": 1 });
+
+// Storage provider index for performance
+TrackSchema.index({ "storage.provider": 1 });
 
 // ===== VIRTUALS =====
 
